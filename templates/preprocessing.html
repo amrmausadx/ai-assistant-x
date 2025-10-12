@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}Preprocessing - Creative Writing ML Pipeline{% endblock %}
+
+{% block content %}
+<h1>📚 Text Data Preprocessing</h1>
+
+<div class="info-section">
+    <h2>🎯 About Data Preprocessing</h2>
+    <p>This step processes text data from multiple sources, cleans it, and prepares it for model training. The preprocessing pipeline handles HTML removal, text normalization, and sentence tokenization.</p>
+</div>
+
+<div class="grid">
+    <div class="card">
+        <h3>📖 Gutenberg Corpus</h3>
+        <p>The Gutenberg corpus is a collection of classic public-domain literary works, widely used in natural language processing for text analysis and language modeling.</p>
+    </div>
+    <div class="card">
+        <h3>📰 WikiText-103</h3>
+        <p>Wikipedia articles used as a substitute for BookCorpus, offering diverse writing styles and topics.</p>
+    </div>
+    <div class="card">
+        <h3>🎭 Poetry Dataset</h3>
+        <p>DanFosing/public-domain-poetry is a dataset of around 38,500 poems from public domain sources, including works by Emily Dickinson, Walt Whitman, and Robert Frost.</p>
+    </div>
+    
+</div>
+<div class="form-group">
+     <label for="limit">limit to load:</label><!--input number limit to 3000  record-->
+    <input type="number" id="limit_load" name="limit_load" value="100" step="100" min="100" required>
+</div>
+<div class="form-group">
+     <label for="experiment_name">MLflow Experiment Name:</label>
+     <input type="text" id="experiment_name" name="experiment_name" value="creative-writing" required>
+</div>
+<button id="startBtn" class="btn" onclick="startPreprocessing()">
+    🚀 Start Preprocessing
+</button>
+
+<div id="progressContainer" class="progress-container">
+    <h3>Processing Status</h3>
+    <div class="progress-bar">
+        <div id="progressFill" class="progress-fill"></div>
+    </div>
+    <div id="progressText">0%</div>
+    <div id="statusMessage" class="status-message status-info">Initializing...</div>
+</div>
+
+<div id="mlflowInfo" style="background: #e6fffa; padding: 15px; border-radius: 8px; margin-top: 20px; border: 1px solid #81e6d9; display: none;">
+    <h3>🔬 MLflow Experiment Tracking</h3>
+    <p><strong>Experiment:</strong> <span id="Experiment">-</span></p>
+    <p><strong>Run ID:</strong> <span id="runId">-</span></p>
+    <p><strong>Start Time:</strong> <span id="startTime">-</span></p>
+    <p><strong>End Time:</strong> <span id="endTime">-</span></p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    let statusInterval;
+    
+    function startPreprocessing() {
+        const btn = document.getElementById('startBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const mlflowInfo = document.getElementById('mlflowInfo');
+        
+        btn.disabled = true;
+        btn.textContent = '⏳ Processing...';
+        progressContainer.style.display = 'block';
+        mlflowInfo.style.display = 'block';
+
+        // Define config from input field
+        const config = {experiment_name: document.getElementById('experiment_name').value,
+            limit_load: document.getElementById('limit_load').value,
+        };
+        
+        
+        fetch('/api/preprocessing/start', {method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config),
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    statusInterval = setInterval(checkStatus, 1000);
+                } else {
+                    alert('Failed to start: ' + data.message);
+                    resetUI();
+                }
+            })
+            .catch(error => {
+                alert('Error: ' + error.message);
+                resetUI();
+            });
+    }
+    
+    function checkStatus() {
+        fetch('/api/preprocessing/status')
+            .then(response => response.json())
+            .then(data => {
+                const progressFill = document.getElementById('progressFill');
+                const progressText = document.getElementById('progressText');
+                const statusMessage = document.getElementById('statusMessage');
+                const runId = document.getElementById('runId');
+                const startTime = document.getElementById('startTime');
+                const endTime = document.getElementById('endTime');
+                const btn = document.getElementById('startBtn');
+                const experiment_name = document.getElementById('Experiment');
+                
+                progressFill.style.width = data.progress + '%';
+                progressText.textContent = data.progress + '%';
+                
+                statusMessage.textContent = data.message;
+                statusMessage.className = 'status-message ' + 
+                    (data.error ? 'status-error' : 
+                     data.progress === 100 ? 'status-success' : 'status-info');
+                if (data.experiment_name) experiment_name.textContent = data.experiment_name;
+                if (data.run_id) runId.textContent = data.run_id;
+                if (data.start_time) startTime.textContent = data.start_time;
+                if (data.end_time) endTime.textContent = data.end_time;
+                
+                if (!data.running) {
+                    clearInterval(statusInterval);
+                    resetUI();
+                }
+            });
+    }
+    
+    function resetUI() {
+        const btn = document.getElementById('startBtn');
+        btn.disabled = false;
+        btn.textContent = '🚀 Start Preprocessing';
+    }
+</script>
+{% endblock %}

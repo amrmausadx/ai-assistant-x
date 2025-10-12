@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+
+{% block title %}Status - Creative Writing ML Pipeline{% endblock %}
+
+{% block content %}
+<h1>📊 Pipeline Status</h1>
+
+<div class="info-section">
+    <h2>🔍 Real-time Monitoring</h2>
+    <p>Monitor the progress of your preprocessing and training tasks. This page automatically refreshes to show the latest status.</p>
+</div>
+
+<div class="grid">
+    <div class="card">
+        <h3>📚 Preprocessing Status</h3>
+        <div id="preprocessingStatus">
+            <div class="progress-bar">
+                <div id="prepProgressFill" class="progress-fill"></div>
+            </div>
+            <div id="prepProgressText">0%</div>
+            <div id="prepStatusMessage" class="status-message status-info">Not started</div>
+            <div id="prepDetails" style="margin-top: 10px; font-size: 0.9em; color: #666;"></div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h3>🚀 Training Status</h3>
+        <div id="trainingStatus">
+            <div class="progress-bar">
+                <div id="trainProgressFill" class="progress-fill"></div>
+            </div>
+            <div id="trainProgressText">0%</div>
+            <div id="trainStatusMessage" class="status-message status-info">Not started</div>
+            <div id="trainDetails" style="margin-top: 10px; font-size: 0.9em; color: #666;"></div>
+        </div>
+    </div>
+    <div class="card">
+        <h3>Generating Text Status</h3>
+        <div id="generatingStatus">
+            <div class="progress-bar">
+                <div id="genProgressFill" class="progress-fill"></div>
+            </div>
+            <div id="genProgressText">0%</div>
+            <div id="genStatusMessage" class="status-message status-info">Not started</div>
+            <div id="genDetails" style="margin-top: 10px; font-size: 0.9em; color: #666;"></div>
+        </div>
+    </div>
+</div>
+<div class="grid">
+    <div class="card">
+        <h3>🔬 MLflow Experiments</h3>
+        <p>View detailed metrics and artifacts in MLflow UI:</p>
+        <ol>
+            <li>Run <code>mlflow ui</code> in terminal</li>
+            <li>Open <a href="http://127.0.0.1:5000" target="_blank">http://127.0.0.1:5000</a></li>
+        </ol>
+        <div id="mlflowRunIds" style="margin-top: 15px;"></div>
+    </div>
+    
+    <div class="card">
+        <h3>📁 Output Files</h3>
+        <div id="outputFiles">
+            <p>Generated files:</p>
+            <ul id="filesList">
+                <li id="datasetFile" style="color: #666;">creative_writing_dataset.csv (pending)</li>
+                <li id="modelFile" style="color: #666;">./gpt2_finetuned/ (pending)</li>
+            </ul>
+            <button onclick="downloadDataset()" class="btn" style="margin-top: 15px;" disabled id="downloadBtn">
+                📥 Download Dataset
+            </button>
+        </div>
+    </div>
+    <div class="card">
+    <h3>📦 Last Registered Model</h3>
+    <p><strong>Name:</strong> <span id="modelName">-</span></p>
+    <p><strong>Version:</strong> <span id="modelVersion">-</span></p>
+    <p><strong>Status:</strong> <span id="modelStatus">-</span></p>
+    <p><strong>Creation Time:</strong> <span id="modelTime">-</span></p>
+</div>
+</div>
+
+<div class="info-section">
+    <h3>🎮 Quick Actions</h3>
+    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+        <a href="/preprocessing" class="btn" style="flex: 1; text-decoration: none; text-align: center;">🔄 Go to Preprocessing</a>
+        <a href="/training" class="btn" style="flex: 1; text-decoration: none; text-align: center;">🚀 Go to Training</a>
+        <a href="/generating" class="btn" style="flex: 1; text-decoration: none; text-align: center;">📝 Go to Generating</a>
+        <button onclick="refreshStatus()" class="btn" style="flex: 1;">🔄 Refresh Status</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    let statusUpdateInterval;
+    
+    function updateStatus() {
+        // Update preprocessing status
+        fetch('/api/status/preprocessing')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('prepProgressFill').style.width = data.progress + '%';
+                document.getElementById('prepProgressText').textContent = data.progress + '%';
+                
+                const prepMessage = document.getElementById('prepStatusMessage');
+                prepMessage.textContent = data.message;
+                prepMessage.className = 'status-message ' + 
+                    (data.error ? 'status-error' : 
+                     data.progress === 100 ? 'status-success' : 'status-info');
+                
+                let details = '';
+                if (data.start_time) details += `Started: ${data.start_time}<br>`;
+                if (data.end_time) details += `Ended: ${data.end_time}<br>`;
+                if (data.run_id) details += `MLflow Run: ${data.run_id}`;
+                document.getElementById('prepDetails').innerHTML = details;
+                
+                // Update file status
+                const datasetFile = document.getElementById('datasetFile');
+                if (data.progress === 100 && !data.error) {
+                    datasetFile.style.color = '#22543d';
+                    datasetFile.innerHTML = 'creative_writing_dataset.csv ✅';
+                    document.getElementById('downloadBtn').disabled = false;
+                }
+            })
+            .catch(error => console.error('Error fetching preprocessing status:', error));
+        
+        // Update training status
+        fetch('/api/status/training')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('trainProgressFill').style.width = data.progress + '%';
+                document.getElementById('trainProgressText').textContent = data.progress + '%';
+                
+                const trainMessage = document.getElementById('trainStatusMessage');
+                trainMessage.textContent = data.message;
+                trainMessage.className = 'status-message ' + 
+                    (data.error ? 'status-error' : 
+                     data.progress === 100 ? 'status-success' : 'status-info');
+                
+                let details = '';
+                if (data.current_epoch && data.total_epochs) {
+                    details += `Epoch: ${data.current_epoch}/${data.total_epochs}<br>`;
+                }
+                if (data.current_loss) {
+                    details += `Loss: ${data.current_loss.toFixed(4)}<br>`;
+                }
+                if (data.start_time) details += `Started: ${data.start_time}<br>`;
+                if (data.end_time) details += `Ended: ${data.end_time}<br>`;
+                if (data.run_id) details += `MLflow Run: ${data.run_id}`;
+                document.getElementById('trainDetails').innerHTML = details;
+                
+                // Update model file status
+                const modelFile = document.getElementById('modelFile');
+                if (data.progress === 100 && !data.error) {
+                    modelFile.style.color = '#22543d';
+                    modelFile.innerHTML = './gpt2_finetuned/ ✅';
+                }
+            })
+            .catch(error => console.error('Error fetching training status:', error));
+        // Update generating status
+        fetch('/api/status/generating')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('genProgressFill').style.width = data.progress + '%';
+                document.getElementById('genProgressText').textContent = data.progress + '%';
+                
+                const genMessage = document.getElementById('genStatusMessage');
+                genMessage.textContent = data.message;
+                genMessage.className = 'status-message ' + 
+                    (data.error ? 'status-error' : 
+                     data.progress === 100 ? 'status-success' : 'status-info');
+                
+                let details = '';
+                if (data.start_time) details += `Started: ${data.start_time}<br>`;
+                if (data.end_time) details += `Ended: ${data.end_time}<br>`;
+                if (data.run_id) details += `MLflow Run: ${data.run_id}`;
+                document.getElementById('genDetails').innerHTML = details;
+                
+                // Update MLflow run IDs
+                const mlflowDiv = document.getElementById('mlflowRunIds');
+                let mlflowContent = '<strong>MLflow Runs:</strong><ul>';
+                if (data.preprocessing_run_id) {
+                    mlflowContent += `<li>Preprocessing: ${data.preprocessing_run_id}</li>`;
+                }
+                if (data.training_run_id) {
+                    mlflowContent += `<li>Training: ${data.training_run_id}</li>`;
+                }
+                if (data.generating_run_id) {
+                    mlflowContent += `<li>Generating: ${data.generating_run_id}</li>`;
+                }
+                mlflowContent += '</ul>';
+                mlflowDiv.innerHTML = mlflowContent;
+            })
+            .catch(error => console.error('Error fetching generating status:', error));
+        // Update last registered model info
+        fetch('/api/status/last_model')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('modelName').textContent = data.name || '-';
+                document.getElementById('modelVersion').textContent = data.version || '-';
+                document.getElementById('modelStatus').textContent = data.status || '-';
+                document.getElementById('modelTime').textContent = data.creation_time || '-';
+                })
+            .catch(error => console.error('Error fetching last model status:', error));
+            
+    }
+    
+    function downloadDataset() {
+        fetch('/download_dataset')
+            .then(response => {
+                if (response.ok) {
+                    return response.blob();
+                } else {
+                    throw new Error('Dataset not found. Please run preprocessing first.');
+                }
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'creative_writing_dataset.csv';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            })
+            .catch(error => {
+                alert('Error: ' + error.message);
+            });
+    }
+    
+    function refreshStatus() {
+        updateStatus();
+    }
+    
+    // Start auto-refresh
+    function startAutoRefresh() {
+        updateStatus(); // Initial update
+        statusUpdateInterval = setInterval(updateStatus, 3000); // Update every 3 seconds
+    }
+    
+    function stopAutoRefresh() {
+        if (statusUpdateInterval) {
+            clearInterval(statusUpdateInterval);
+        }
+    }
+    
+    // Start monitoring when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        startAutoRefresh();
+    });
+    
+    // Stop monitoring when page is hidden (to save resources)
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            stopAutoRefresh();
+        } else {
+            startAutoRefresh();
+        }
+    });
+    
+    // Clean up when leaving page
+    window.addEventListener('beforeunload', function() {
+        stopAutoRefresh();
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,141 @@
+{% extends 'base.html' %}
+{% block title %}Generation - Creative Writing Assistant{% endblock %}
+
+{% block content %}
+<h1>✍️ Creative Generation</h1>
+
+<form id="generationForm">
+  <div class="card">
+      <label for="prompt">Your text / prompt</label>
+      <textarea id="prompt" name="prompt" rows="6" style="width:100%;padding:10px;font-size:15px;"></textarea>
+  </div>
+  <div class="form-group">
+            <label for="model_name">Base Model:</label>
+            <select id="model_name" name="model_name">
+                <option value="gpt2">GPT-2 (117M)</option>
+                <option value="gpt2-medium">GPT-2 Medium (345M)</option>
+                <option value="gpt2-large">GPT-2 Large (774M)</option>
+                <option value="distilgpt2">DistilGPT-2 (82M)</option>
+                <option value="./gpt2_finetuned/">Your Finetuned Model</option>
+            </select>
+   </div>
+  <div class="form-row">
+    <div class="form-group">
+      <label for="max_length">Max length</label>
+      <input id="max_length" name="max_length" type="number" value="200" />
+    </div>
+    <div class="form-group">
+      <label for="temperature">Temperature</label>
+      <input id="temperature" name="temperature" type="number" step="0.1" value="0.9" />
+    </div>
+  </div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label for="experiment_name">Experiment Name</label>
+      <input id="experiment_name" name="experiment_name" type="text" value="creative-writing" />
+    </div>
+  </div>
+
+  <button type="submit" id="generateBtn" class="btn">✨ Start Generation</button>
+</form>
+
+<div id="generationProgressContainer" class="progress-container" style="display:none;">
+  <h3>Generation Progress</h3>
+  <div class="progress-bar">
+    <div id="generationProgressFill" class="progress-fill"></div>
+  </div>
+  <div id="generationProgressText">0%</div>
+  <div id="generationStatusMessage" class="status-message status-info">Initializing...</div>
+</div>
+
+<div id="generationMlflowInfo" style="background:#e6fffa;padding:15px;border-radius:8px;margin-top:20px;border:1px solid #81e6d9;display:none;">
+  <h3>🔬 MLflow Generation Tracking</h3>
+  <p><strong>Experiment:</strong> <span id="generationExperiment">-</span></p>
+  <p><strong>Run ID:</strong> <span id="generationRunId">-</span></p>
+  <p><strong>Start Time:</strong> <span id="generationStartTime">-</span></p>
+  <p><strong>End Time:</strong> <span id="generationEndTime">-</span></p>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <h3>Output</h3>
+  <pre id="output" style="white-space:pre-wrap;min-height:200px;padding:10px;background:#fff;border-radius:6px;border:1px solid #eee;"></pre>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let generationStatusInterval;
+
+document.getElementById('generationForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  startGeneration();
+});
+
+function startGeneration() {
+  const btn = document.getElementById('generateBtn');
+  const progressContainer = document.getElementById('generationProgressContainer');
+  const mlflowInfo = document.getElementById('generationMlflowInfo');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Generating...';
+  progressContainer.style.display = 'block';
+  mlflowInfo.style.display = 'block';
+
+  const payload = {
+    prompt: document.getElementById('prompt').value,
+    model_name: document.getElementById('model_name').value,
+    max_length: parseInt(document.getElementById('max_length').value),
+    temperature: parseFloat(document.getElementById('temperature').value),
+    experiment_name: document.getElementById('experiment_name').value
+  };
+
+  fetch('/api/generating/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'started') {
+      generationStatusInterval = setInterval(checkGenerationStatus, 2000);
+    } else {
+      alert('Failed to start: ' + data.message);
+      resetUI();
+    }
+  })
+  .catch(err => {
+    alert('Error: ' + err.message);
+    resetUI();
+  });
+}
+
+function checkGenerationStatus() {
+  fetch('/api/generating/status')
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('generationProgressFill').style.width = data.progress + '%';
+      document.getElementById('generationProgressText').textContent = data.progress + '%';
+      document.getElementById('generationStatusMessage').textContent = data.message;
+
+      if (data.run_id) document.getElementById('generationRunId').textContent = data.run_id;
+      if (data.start_time) document.getElementById('generationStartTime').textContent = data.start_time;
+      if (data.end_time) document.getElementById('generationEndTime').textContent = data.end_time;
+      document.getElementById('generationExperiment').textContent = data.experiment_name || '-';
+
+      if (data.output_text) document.getElementById('output').textContent = data.output_text;
+
+      if (!data.running) {
+        clearInterval(generationStatusInterval);
+        resetUI();
+      }
+    });
+}
+
+function resetUI() {
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = false;
+  btn.textContent = '✨ Start Generation';
+}
+</script>
+{% endblock %}

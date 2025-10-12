@@ -1,0 +1,442 @@
+{% extends "base.html" %}
+
+{% block title %}Training - Creative Writing ML Pipeline{% endblock %}
+
+{% block content %}
+<h1>🚀 Model Training</h1>
+
+<div class="info-section">
+    <h2>🎯 GPT-2 Fine-tuning</h2>
+    <p>Fine-tune GPT-2 models on your preprocessed creative writing data. Configure training parameters below and monitor progress in real-time.</p>
+</div>
+
+{% if not training_available %}
+<div class="warning">
+    <h3>⚠️ Training Dependencies Missing</h3>
+    <p>Training functionality requires additional packages. Please install:</p>
+    <pre>pip install transformers torch datasets evaluate rouge-score</pre>
+</div>
+{% endif %}
+
+<div class="grid">
+    <div class="card">
+        <h3>📁 Dataset Requirements</h3>
+        <p>Make sure you have completed the preprocessing step first. The training expects a CSV file with a 'text' column.</p>
+        <p><strong>Default file:</strong> creative_writing_dataset.csv</p>
+    </div>
+    
+    <div class="card">
+        <h3>🔧 Model Configuration</h3>
+        <p>Adjust hyperparameters based on your hardware and requirements. Smaller batch sizes work better with limited GPU memory.</p>
+    </div>
+</div>
+
+<form id="trainingForm">
+    <div class="form-row">
+        <div class="form-group">
+            <label for="input_csv">Dataset CSV File:</label>
+            <input type="text" id="input_csv" name="input_csv" value="creative_writing_dataset.csv" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="model_name">Base Model:</label>
+            <select id="model_name" name="model_name">
+                <option value="gpt2">GPT-2 (117M)</option>
+                <option value="gpt2-medium">GPT-2 Medium (345M)</option>
+                <option value="gpt2-large">GPT-2 Large (774M)</option>
+                <option value="distilgpt2">DistilGPT-2 (82M)</option>
+                <option value="facebook/bart-base">BART Base (139M)</option>
+                <option value="facebook/bart-large">BART Large (406M)</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="form-row">
+        <div class="form-group">
+            <label for="experiment_name">Experiment Name:</label>
+            <input type="text" id="experiment_name" name="experiment_name" value="creative-writing">
+        </div>
+        
+        <div class="form-group">
+            <label for="output_dir">Output Directory:</label>
+            <input type="text" id="output_dir" name="output_dir" value="./gpt2_finetuned">
+        </div>
+    </div>
+    
+    <div class="form-row">
+        <div class="form-group">
+            <label for="num_train_epochs">Training Epochs:</label>
+            <input type="number" id="num_train_epochs" name="num_train_epochs" value="5" min="1" max="8">
+        </div>
+        
+        <div class="form-group">
+            <label for="learning_rate">Learning Rate:</label>
+            <input type="number" id="learning_rate" name="learning_rate" value="3e-5" step="1e-6">
+        </div>
+    </div>
+    
+    <div class="form-row">
+        <div class="form-group">
+            <label for="train_batch_size">Training Batch Size:</label>
+            <input type="number" id="train_batch_size" name="train_batch_size" value="4" min="1" max="32">
+        </div>
+        
+        <div class="form-group">
+            <label for="eval_batch_size">Evaluation Batch Size:</label>
+            <input type="number" id="eval_batch_size" name="eval_batch_size" value="4" min="1" max="32">
+        </div>
+    </div>
+    
+    <div class="form-row">
+        <div class="form-group">
+            <label for="block_size">Block Size (tokens):</label>
+            <input type="number" id="block_size" name="block_size" value="512" min="64" max="1024">
+        </div>
+        
+        <div class="form-group">
+            <label for="test_size">Test Split Size:</label>
+            <input type="number" id="test_size" name="test_size" value="0.1" min="0.1" max="0.4" step="0.1">
+        </div>
+    </div>
+    
+    <div class="form-group">
+        <input type="checkbox" id="fp16" name="fp16" style="width: auto; margin-right: 10px;">
+        <label for="fp16" style="display: inline;">Enable Mixed Precision (FP16) - Faster training, requires compatible GPU</label>
+    </div>
+    
+    <button type="submit" id="startTrainingBtn" class="btn" {{ 'disabled' if not training_available else '' }}>
+        🚀 Start Training
+    </button>
+</form>
+<div id="trainingProgressContainer" class="progress-container">
+    <h3>Training Progress</h3>
+    <div class="progress-bar">
+        <div id="trainingProgressFill" class="progress-fill"></div>
+    </div>
+    <div id="trainingProgressText">0%</div>
+    <div id="trainingStatusMessage" class="status-message status-info">Initializing...</div>
+    
+    <div id="trainingMetrics" style="margin-top: 15px; display: none;">
+        <h4>Training Metrics</h4>
+        <p><strong>Current Epoch:</strong> <span id="currentEpoch">-</span> / <span id="totalEpochs">-</span></p>
+        <p><strong>Current Loss:</strong> <span id="currentLoss">-</span></p>
+    </div>
+</div>
+
+<div id="trainingMlflowInfo" style="background: #e6fffa; padding: 15px; border-radius: 8px; margin-top: 20px; border: 1px solid #81e6d9; display: none;">
+    <h3>🔬 MLflow Training Tracking</h3>
+    <p><strong>Experiment:</strong> <span id="trainingExperiment">-</span></p>
+    <p><strong>Run ID:</strong> <span id="trainingRunId">-</span></p>
+    <p><strong>Start Time:</strong> <span id="trainingStartTime">-</span></p>
+    <p><strong>End Time:</strong> <span id="trainingEndTime">-</span></p>
+</div>
+
+<form id="ganTrainingForm">
+    <div class="info-section">
+        <h2>🎯 GAN Training</h2>
+        <p>Further enhance your fine-tuned GPT-2 model using a Generative Adversarial Network (GAN) approach. This step requires a pre-trained discriminator model.</p>
+    </div>
+    <!--mlflow experiment tracking and discriminator model -->
+    <div class="form-row">
+        <div class="form-group">
+            <label for="experiment_name">MLflow Experiment Name:</label>
+            <input type="text" id="experiment_name" name="experiment_name" value="creative-writing" required>
+        </div>
+        <div class="form-group">
+            <label for="discriminator_model">Discriminator Model:</label>
+            <input type="text" id="discriminator_model" name="discriminator_model" value="distilbert-base-uncased" required>
+        </div>
+    </div>
+    <!--batch size & learning rate for discriminator-->
+    <div class="form-row">
+        <div class="form-group">
+            <label for="gan_batch_size">GAN Training Batch Size:</label>
+            <input type="number" id="gan_batch_size" name="gan_batch_size" value="4" min="1" max="32">
+        </div>
+        <div class="form-group">
+            <label for="learning_rate_d">GAN Learning Rate (Discriminator):</label>
+            <input type="number" id="learning_rate_d" name="learning_rate_d" value="3e-5" step="1e-6">
+        </div>
+    </div>
+    <!--learning rate generator and GAN Epochs-->
+    <div class="form-row">
+        <div class="form-group">
+            <label for="learning_rate_g">GAN Learning Rate (Generator):</label>
+            <input type="number" id="learning_rate_g" name="learning_rate_g" value="3e-5" step="1e-6">
+        </div>
+            <div class="form-group">
+            <label for="gan_epochs">GAN Training Epochs:</label>
+            <input type="number" id="gan_epochs" name="gan_epochs" value="5" min="1" max="10">
+        </div>
+    
+    </div>
+    <!--real texts for discriminator training -->
+    <div class="form-group">
+        <label for="real_texts">Real Texts for Discriminator Training (comma-separated):</label>
+        <input type="text" id="real_texts" name="real_texts" value="The sun set behind the hills,She whispered softly into the night,In the dark forest,The ancient ruins stood silent,As the spaceship landed on the alien terrain,The detective pondered over the clues \n">        
+    </div>
+    <!--prompts for generator-->
+    <div class="form-group">
+            <label for="prompts">Prompts for Generator (comma-separated):</label>
+            <input type="text" id="prompts" name="prompts" value="The sun set behind , She whispered softly , In the dark forest , The ancient ruins stood silent , As the spaceship landed on the alien terrain , The detective pondered over the clues">
+    </div>
+    <!--output directory-->
+    <div class="form-group">
+        <label for="output_dir">GAN Output Directory:</label>
+        <input type="text" id="output_dir" name="output_dir" value="./gpt2_finetuned">
+    </div>
+    <!--submit button-->
+    <button type="submit" id="startGanTrainingBtn" class="btn" {{ 'disabled' if not training_available else '' }}>
+        🤖 Start GAN Training
+    </button>
+</form>
+<!-- GAN progress -->
+<div id="ganProgress" class="progress-container" style="display: none;">
+    <h3>GAN Training Progress</h3>
+    <div class="progress-bar">
+        <div id="ganProgressFill" class="progress-fill"></div>
+    </div>
+    <div id="ganProgressText">0%</div>
+    <div id="ganStatusMessage" class="status-message status-info">Initializing...</div>
+    
+    <div id="ganMetrics" style="margin-top: 15px; display: none;">
+        <h4>GAN Training Metrics</h4>
+        <p><strong>Current Epoch:</strong> <span id="ganCurrentEpoch">-</span> / <span id="ganTotalEpochs">-</span></p>
+        <p><strong>Current Generator Loss:</strong> <span id="ganCurrentGLoss">-</span></p>
+        <p><strong>Current Discriminator Loss:</strong> <span id="ganCurrentDLoss">-</span></p>
+    </div>
+</div>
+<!-- GAN mlflow Tracking -->
+<div id="ganMlflowInfo" style="background: #e6fffa; padding: 15px; border-radius: 8px; margin-top: 20px; border: 1px solid #81e6d9; display: none;">
+    <h3>🔬 MLflow GAN Training Tracking</h3>
+    <p><strong>Experiment:</strong> <span id="ganExperiment">-</span></p>
+    <p><strong>Run ID:</strong> <span id="ganRunId">-</span></p>
+    <p><strong>Start Time:</strong> <span id="ganStartTime">-</span></p>
+    <p><strong>End Time:</strong> <span id="ganEndTime">-</span></p>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    let trainingStatusInterval;
+    
+    let ganTrainingStatusInterval;
+
+    document.getElementById('trainingForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        startTraining();
+    });
+    
+    document.getElementById('ganTrainingForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        startGanTraining();
+    });
+
+    function startTraining() {
+        const btn = document.getElementById('startTrainingBtn');
+        const progressContainer = document.getElementById('trainingProgressContainer');
+        const mlflowInfo = document.getElementById('trainingMlflowInfo');
+        const metricsDiv = document.getElementById('trainingMetrics');
+        
+        btn.disabled = true;
+        btn.textContent = '⏳ Training...';
+        progressContainer.style.display = 'block';
+        mlflowInfo.style.display = 'block';
+        metricsDiv.style.display = 'block';
+        
+        const formData = new FormData(document.getElementById('trainingForm'));
+        const config = {};
+        
+        for (let [key, value] of formData.entries()) {
+            if (key === 'fp16') {
+                config[key] = true;
+            } else if (['num_train_epochs', 'train_batch_size', 'eval_batch_size', 'block_size'].includes(key)) {
+                config[key] = parseInt(value);
+            } else if (['learning_rate', 'test_size'].includes(key)) {
+                config[key] = parseFloat(value);
+            } else {
+                config[key] = value;
+            }
+        }
+        
+        // Add checkbox if not checked
+        if (!config.fp16) {
+            config.fp16 = false;
+        }
+        
+        fetch('/api/training/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(config)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'started') {
+                trainingStatusInterval = setInterval(checkTrainingStatus, 2000);
+            } else {
+                alert('Failed to start training: ' + data.message);
+                resetTrainingUI();
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+            resetTrainingUI();
+        });
+    }
+    
+    function startGanTraining() {
+        const btn = document.getElementById('startGanTrainingBtn');
+        const progressContainer = document.getElementById('ganProgress');
+        const mlflowInfo = document.getElementById('ganMlflowInfo');
+        const metricsDiv = document.getElementById('ganMetrics');
+        
+        btn.disabled = true;
+        btn.textContent = '⏳ GAN Training...';
+        progressContainer.style.display = 'block';
+        mlflowInfo.style.display = 'block';
+        metricsDiv.style.display = 'block';
+        
+        const formData = new FormData(document.getElementById('ganTrainingForm'));
+        const config = {};
+        // Define config from input field
+        
+        
+        for (let [key, value] of formData.entries()) {
+            if (['gan_epochs', 'gan_batch_size'].includes(key)) {
+                config[key] = parseInt(value);
+            } else if (['learning_rate_d', 'learning_rate_g'].includes(key)) {
+                config[key] = parseFloat(value);
+            } else {
+                config[key] = value;
+            }
+        }
+        
+        fetch('/api/training/start_gan', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(config)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'started') {
+                ganTrainingStatusInterval = setInterval(checkGanTrainingStatus, 2000);
+            } else {
+                alert('Failed to start GAN training: ' + data.message);
+                resetGanTrainingUI();
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+            resetGanTrainingUI();
+        });
+    }
+
+    
+    function checkGanTrainingStatus() {
+        fetch('/api/training/gan_status')
+            .then(response => response.json())
+            .then(data => {
+                const progressFill = document.getElementById('ganProgressFill');
+                const progressText = document.getElementById('ganProgressText');
+                const statusMessage = document.getElementById('ganStatusMessage');
+                const runId = document.getElementById('ganRunId');
+                const startTime = document.getElementById('ganStartTime');
+                const endTime = document.getElementById('ganEndTime');
+                const experiment_name = document.getElementById('ganExperiment');
+                
+                // Update progress
+                progressFill.style.width = data.progress + '%';
+                progressText.textContent = data.progress + '%';
+                
+                // Update status message
+                statusMessage.textContent = data.message;
+                statusMessage.className = 'status-message ' + 
+                    (data.error ? 'status-error' : 
+                     data.progress === 100 ? 'status-success' : 'status-info');
+                
+                // Update MLflow info
+                if (data.experiment_name) experiment_name.textContent = data.experiment_name;
+                if (data.run_id) runId.textContent = data.run_id;
+                if (data.start_time) startTime.textContent = data.start_time;
+                if (data.end_time) endTime.textContent = data.end_time;
+                
+                // Update GAN training metrics
+                document.getElementById('ganCurrentEpoch').textContent = data.current_epoch || '-';
+                document.getElementById('ganTotalEpochs').textContent = data.total_epochs || '-';
+                document.getElementById('ganCurrentGLoss').textContent = data.current_g_loss ? data.current_g_loss.toFixed(4) : '-';
+                document.getElementById('ganCurrentDLoss').textContent = data.current_d_loss ? data.current_d_loss.toFixed(4) : '-';
+                
+                // Check if GAN training is complete
+                if (!data.running) {
+                    clearInterval(ganTrainingStatusInterval);
+                    resetGanTrainingUI();
+                }
+            });
+    }
+
+    function checkTrainingStatus() {
+        fetch('/api/training/status')
+            .then(response => response.json())
+            .then(data => {
+                const progressFill = document.getElementById('trainingProgressFill');
+                const progressText = document.getElementById('trainingProgressText');
+                const statusMessage = document.getElementById('trainingStatusMessage');
+                const runId = document.getElementById('trainingRunId');
+                const startTime = document.getElementById('trainingStartTime');
+                const endTime = document.getElementById('trainingEndTime');
+                const experiment_name = document.getElementById('trainingExperiment');
+                
+                // Update progress
+                progressFill.style.width = data.progress + '%';
+                progressText.textContent = data.progress + '%';
+                
+                // Update status message
+                statusMessage.textContent = data.message;
+                statusMessage.className = 'status-message ' + 
+                    (data.error ? 'status-error' : 
+                     data.progress === 100 ? 'status-success' : 'status-info');
+                
+                // Update MLflow info
+                if (data.experiment_name) experiment_name.textContent = data.experiment_name;
+                if (data.run_id) runId.textContent = data.run_id;
+                if (data.start_time) startTime.textContent = data.start_time;
+                if (data.end_time) endTime.textContent = data.end_time;
+                
+                // Update training metrics
+                document.getElementById('currentEpoch').textContent = data.current_epoch || '-';
+                document.getElementById('totalEpochs').textContent = data.total_epochs || '-';
+                document.getElementById('currentLoss').textContent = data.current_loss ? data.current_loss.toFixed(4) : '-';
+                
+                // Check if training is complete
+                if (!data.running) {
+                    clearInterval(trainingStatusInterval);
+                    resetTrainingUI();
+                }
+            });
+    }
+    
+    function resetTrainingUI() {
+        const btn = document.getElementById('startTrainingBtn');
+        {% if training_available %}
+        btn.disabled = false;
+        {% else %}
+        btn.disabled = true;
+        {% endif %}
+        btn.textContent = '🚀 Start Training';
+    }
+    function resetGanTrainingUI() {
+        const btn = document.getElementById('startGanTrainingBtn');
+        {% if training_available %}
+        btn.disabled = false;
+        {% else %}
+        btn.disabled = true;
+        {% endif %}
+        btn.textContent = '🤖 Start GAN Training';
+    }
+</script>
+{% endblock %}

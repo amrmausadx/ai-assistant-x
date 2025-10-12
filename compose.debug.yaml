@@ -1,0 +1,6 @@
+services:
+  aiassistantwriting:
+    image: aiassistantwriting
+    build:
+      context: .
+      dockerfile: ./Dockerfile
