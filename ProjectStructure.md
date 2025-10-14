@@ -25,6 +25,7 @@ API Routes:
 routes/preprocessing.py - Preprocessing API endpoints
 routes/training.py - Training API endpoints
 routes/status.py - Status monitoring endpoints
+routes/generating.py - Generating API endpoints
 
 Templates:
 ##########

@@ -4,6 +4,7 @@ import mlflow
 from routes.preprocessing import preprocessing_bp
 from routes.training import training_bp
 from routes.generating import generate_bp
+from routes.gantraining import gantraining_bp
 from routes.status import status_bp
 from utils.dependencies import check_dependencies
 
@@ -14,6 +15,7 @@ app.register_blueprint(preprocessing_bp, url_prefix='/api/preprocessing')
 app.register_blueprint(training_bp, url_prefix='/api/training')
 app.register_blueprint(generate_bp, url_prefix='/api/generating')
 app.register_blueprint(status_bp, url_prefix='/api/status')
+app.register_blueprint(gantraining_bp, url_prefix='/api/gantraining')
 
 @app.route('/')
 def home():
@@ -38,6 +40,11 @@ def status():
 @app.route('/generating')
 def generating():
     return render_template('generating.html', active_page='generating')
+
+@app.route('/gantraining')
+def gantraining():
+    deps = check_dependencies()
+    return render_template('gantraining.html', active_page='gantraining', training_available=deps['training'])
 
 @app.route('/download_dataset')
 def download_dataset():

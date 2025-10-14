@@ -17,3 +17,5 @@ itsdangerous
 MarkupSafe
 torchvision
 scikit-learn==1.6.1
+accelerate>=0.26.0
+torchaudio 

@@ -4,6 +4,7 @@ Main training pipeline with optional hardware optimization
 import os
 from unittest import result
 import mlflow
+import torch
 import traceback
 from datetime import datetime
 from datasets import load_dataset, DatasetDict
@@ -38,7 +39,8 @@ def run_training_pipeline(config, optimize=False):
         return False
 
     if optimize:
-        return _run_optimized_training(config)
+        return None
+        #return _run_optimized_training(config)
     else:
         return _run_baseline_training(config)
 
@@ -56,12 +58,14 @@ def _run_baseline_training(config):
         current_epoch=0,
         total_epochs=config.get("num_train_epochs", 2),
         current_loss=None,
+        current_perplexity=None,
         experiment_name = config["experiment_name"],
     )
 
     try:
         mlflow.set_experiment(config["experiment_name"])
         mlflow.autolog()
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
         with mlflow.start_run(run_name="gpt2_finetuning") as run:
             update_training_status(run_id=run.info.run_id)
@@ -72,10 +76,10 @@ def _run_baseline_training(config):
 
             # tokenizer & model
             update_training_status(progress=5, message="Loading tokenizer and model...")
-            tokenizer = AutoTokenizer.from_pretrained(config["model_name"]).to("cuda")
+            tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
-            model = AutoModelForCausalLM.from_pretrained(config["model_name"]).to("cuda")
+            model = AutoModelForCausalLM.from_pretrained(config["model_name"]).to(device)
             model.resize_token_embeddings(len(tokenizer))
 
             mlflow.log_param("model_parameters", sum(p.numel() for p in model.parameters()))
@@ -147,12 +151,21 @@ def _run_baseline_training(config):
             # train
             update_training_status(progress=40, message="Training...")
             trainer.train()
-
+            # get final perplexity
+            perplexity = None
+            try:
+                if 'eval_loss' in trainer.state.log_history[-1]:
+                    eval_loss = trainer.state.log_history[-1]['eval_loss']
+                    perplexity = torch.exp(torch.tensor(eval_loss)).item() if eval_loss < 20 else None
+                else:
+                    perplexity = None
+            except:
+                perplexity = None
             # save + log + register
             _save_and_register(model, tokenizer, config, run.info.run_id)
 
             # evaluate
-            update_training_status(progress=90, message="Evaluating model...")
+            update_training_status(progress=90, message="Evaluating model...",current_perplexity=perplexity)
             evaluate_model(trainer, tokenizer, config)
 
             update_training_status(
@@ -161,6 +174,7 @@ def _run_baseline_training(config):
                 running=False,
                 end_time=datetime.now(),
                 experiment_name = config["experiment_name"],
+                current_perplexity=perplexity,
             )
             return True
 
@@ -186,12 +200,12 @@ def _run_optimized_training(config):
 
     try:
         # detect hardware
-        hardware_info = detect_hardware()
+        #hardware_info = detect_hardware()
         use_optimization = config.get("optimize_for_hardware", True)
 
-        if use_optimization or hardware_info["ram_gb"] < 8:
-            optimal_config = get_optimal_config(hardware_info)
-            config.update(optimal_config)
+        #if use_optimization or hardware_info["ram_gb"] < 8:
+       #     optimal_config = get_optimal_config(hardware_info)
+        #    config.update(optimal_config)
 
         mlflow.set_experiment(config["experiment_name"])
 
@@ -201,8 +215,8 @@ def _run_optimized_training(config):
             # log config & hardware
             for key, value in config.items():
                 mlflow.log_param(key, value)
-            for k, v in hardware_info.items():
-                mlflow.log_param(f"hardware_{k}", v)
+            #for k, v in hardware_info.items():
+            #    mlflow.log_param(f"hardware_{k}", v)
 
             # tokenizer & model
             tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
@@ -216,8 +230,8 @@ def _run_optimized_training(config):
             if not os.path.exists(config["input_csv"]):
                 raise FileNotFoundError(f"{config['input_csv']} not found. Please run preprocessing first.")
             dataset = load_dataset("csv", data_files={"data": config["input_csv"]})["data"]
-            if config.get("max_samples") and len(dataset) > config["max_samples"]:
-                dataset = create_demo_dataset(dataset, config["max_samples"])
+            #if config.get("max_samples") and len(dataset) > config["max_samples"]:
+            #    dataset = create_demo_dataset(dataset, config["max_samples"])
             dataset = dataset.shuffle(seed=config.get("seed", 42))
             split = dataset.train_test_split(test_size=config.get("test_size", 0.05), seed=config.get("seed", 42))
             dataset_dict = DatasetDict({"train": split["train"], "test": split["test"]})

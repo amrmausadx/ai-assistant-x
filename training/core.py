@@ -16,6 +16,7 @@ class MLflowCallback(TrainerCallback):
     def __init__(self, run_id=None):
         self.run_id = run_id
         self.best_loss = float('inf')
+        self.best_perplexity = float('inf')
 
     def on_epoch_begin(self, args, state: TrainerState, control: TrainerControl, **kwargs):
         current_epoch = int(state.epoch) + 1
@@ -34,13 +35,18 @@ class MLflowCallback(TrainerCallback):
         if logs:
             # Update current loss if available
             if 'loss' in logs:
-                update_training_status(current_loss=logs['loss'])
+                #calculate perplexity
+                perplexity = math.exp(logs['loss']) if logs['loss'] < 20 else None
+
+                update_training_status(current_loss=logs['loss'], current_perplexity=perplexity)
                 if (logs['loss']<self.best_loss):
                     self.best_loss = logs['loss']
+                    self.best_perplexity = perplexity
                     mlflow.log_metric("best_train_loss",self.best_loss,step=state.global_step)
+                    mlflow.log_metric("best_train_perplexity",self.best_perplexity,step=state.global_step)
             if 'eval_loss' in logs:
                 mlflow.log_metric("eval_loss",logs['eval_loss'],step=state.global_step)
-                mlflow.log_metric("eval_perplexity",math.exp(logs["eval_loss"]) if logs['eval_loss'] < 20 else float('inf'),step=state.global_step)
+                mlflow.log_metric("eval_perplexity",math.exp(logs["eval_loss"]) if logs['eval_loss'] < 20 else None,step=state.global_step)
             # Log all metrics to MLflow 
             for k, v in logs.items():
                 try:

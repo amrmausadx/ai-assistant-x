@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}Training - Creative Writing ML Pipeline{% endblock %}
+
+{% block content %}
+<h1>🚀 GAN Enhancement for Finetuned Models</h1>
+
+
+{% if not training_available %}
+<div class="warning">
+    <h3>⚠️ Training Dependencies Missing</h3>
+    <p>Training functionality requires additional packages. Please install:</p>
+    <pre>pip install transformers torch datasets evaluate rouge-score</pre>
+</div>
+{% endif %}
+
+<form id="ganTrainingForm">
+    <div class="info-section">
+        <h2>🎯 GAN Training</h2>
+        <p>Further enhance your fine-tuned GPT-2 model using a Generative Adversarial Network (GAN) approach. This step requires a pre-trained discriminator model.</p>
+    </div>
+    <!--mlflow experiment tracking and discriminator model -->
+    <div class="form-row">
+        <div class="form-group">
+            <label for="experiment_name">MLflow Experiment Name:</label>
+            <input type="text" id="experiment_name" name="experiment_name" value="creative-writing" required>
+        </div>
+        <div class="form-group">
+            <label for="discriminator_model">Discriminator Model:</label>
+            <input type="text" id="discriminator_model" name="discriminator_model" value="distilbert-base-uncased" required>
+        </div>
+    </div>
+    <!--batch size & learning rate for discriminator-->
+    <div class="form-row">
+        <div class="form-group">
+            <label for="gan_batch_size">GAN Training Batch Size:</label>
+            <input type="number" id="gan_batch_size" name="gan_batch_size" value="4" min="1" max="32">
+        </div>
+        <div class="form-group">
+            <label for="learning_rate_d">GAN Learning Rate (Discriminator):</label>
+            <input type="number" id="learning_rate_d" name="learning_rate_d" value="3e-5" step="1e-6">
+        </div>
+    </div>
+    <!--learning rate generator and GAN Epochs-->
+    <div class="form-row">
+        <div class="form-group">
+            <label for="learning_rate_g">GAN Learning Rate (Generator):</label>
+            <input type="number" id="learning_rate_g" name="learning_rate_g" value="3e-5" step="1e-6">
+        </div>
+            <div class="form-group">
+            <label for="gan_epochs">GAN Training Epochs:</label>
+            <input type="number" id="gan_epochs" name="gan_epochs" value="5" min="1" max="10">
+        </div>
+    
+    </div>
+    <!--real texts for discriminator training -->
+    <div class="form-group">
+        <label for="real_texts">Real Texts for Discriminator Training (comma-separated):</label>
+        <input type="text" id="real_texts" name="real_texts" value="The sun set behind the hills,She whispered softly into the night,In the dark forest,The ancient ruins stood silent,As the spaceship landed on the alien terrain,The detective pondered over the clues \n">        
+    </div>
+    <!--prompts for generator-->
+    <div class="form-group">
+            <label for="prompts">Prompts for Generator (comma-separated):</label>
+            <input type="text" id="prompts" name="prompts" value="The sun set behind , She whispered softly , In the dark forest , The ancient ruins stood silent , As the spaceship landed on the alien terrain , The detective pondered over the clues">
+    </div>
+    <!--output directory-->
+    <div class="form-group">
+        <label for="output_dir">GAN Output Directory:</label>
+        <input type="text" id="output_dir" name="output_dir" value="./gpt2_finetuned">
+    </div>
+    <!--submit button-->
+    <button type="submit" id="startGanTrainingBtn" class="btn" {{ 'disabled' if not training_available else '' }}>
+        🤖 Start GAN Training
+    </button>
+</form>
+<!-- GAN progress -->
+<div id="ganProgress" class="progress-container" style="display: none;">
+    <h3>GAN Training Progress</h3>
+    <div class="progress-bar">
+        <div id="ganProgressFill" class="progress-fill"></div>
+    </div>
+    <div id="ganProgressText">0%</div>
+    <div id="ganStatusMessage" class="status-message status-info">Initializing...</div>
+    
+    <div id="ganMetrics" style="margin-top: 15px; display: none;">
+        <h4>GAN Training Metrics</h4>
+        <p><strong>Current Epoch:</strong> <span id="ganCurrentEpoch">-</span> / <span id="ganTotalEpochs">-</span></p>
+        <p><strong>Current Generator Loss:</strong> <span id="ganCurrentGLoss">-</span></p>
+        <p><strong>Current Discriminator Loss:</strong> <span id="ganCurrentDLoss">-</span></p>
+        <p><strong>Current Perplexity:</strong> <span id="ganCurrentPerplexity">-</span></p>
+    </div>
+</div>
+<!-- GAN mlflow Tracking -->
+<div id="ganMlflowInfo" style="background: #e6fffa; padding: 15px; border-radius: 8px; margin-top: 20px; border: 1px solid #81e6d9; display: none;">
+    <h3>🔬 MLflow GAN Training Tracking</h3>
+    <p><strong>Experiment:</strong> <span id="ganExperiment">-</span></p>
+    <p><strong>Run ID:</strong> <span id="ganRunId">-</span></p>
+    <p><strong>Start Time:</strong> <span id="ganStartTime">-</span></p>
+    <p><strong>End Time:</strong> <span id="ganEndTime">-</span></p>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>    
+    let ganTrainingStatusInterval;
+
+    document.getElementById('ganTrainingForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        startGanTraining();
+    });
+
+  
+    function startGanTraining() {
+        const btn = document.getElementById('startGanTrainingBtn');
+        const progressContainer = document.getElementById('ganProgress');
+        const mlflowInfo = document.getElementById('ganMlflowInfo');
+        const metricsDiv = document.getElementById('ganMetrics');
+        
+        btn.disabled = true;
+        btn.textContent = '⏳ GAN Training...';
+        progressContainer.style.display = 'block';
+        mlflowInfo.style.display = 'block';
+        metricsDiv.style.display = 'block';
+        
+        const formData = new FormData(document.getElementById('ganTrainingForm'));
+        const config = {};
+        // Define config from input field
+        
+        
+        for (let [key, value] of formData.entries()) {
+            if (['gan_epochs', 'gan_batch_size'].includes(key)) {
+                config[key] = parseInt(value);
+            } else if (['learning_rate_d', 'learning_rate_g','current_perplexity'].includes(key)) {
+                config[key] = parseFloat(value);
+            } else {
+                config[key] = value;
+            }
+        }
+        
+        fetch('/api/gantraining/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(config)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'started') {
+                ganTrainingStatusInterval = setInterval(checkGanTrainingStatus, 2000);
+            } else {
+                alert('Failed to start GAN training: ' + data.message);
+                resetGanTrainingUI();
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+            resetGanTrainingUI();
+        });
+    }
+
+    function checkGanTrainingStatus() {
+        fetch('/api/gantraining/status')
+            .then(response => response.json())
+            .then(data => {
+                const progressFill = document.getElementById('ganProgressFill');
+                const progressText = document.getElementById('ganProgressText');
+                const statusMessage = document.getElementById('ganStatusMessage');
+                const runId = document.getElementById('ganRunId');
+                const startTime = document.getElementById('ganStartTime');
+                const endTime = document.getElementById('ganEndTime');
+                const experiment_name = document.getElementById('ganExperiment');
+                const current_perplexity = document.getElementById('ganCurrentPerplexity');
+                
+                // Update progress
+                progressFill.style.width = data.progress + '%';
+                progressText.textContent = data.progress + '%';
+                
+                // Update status message
+                statusMessage.textContent = data.message;
+                statusMessage.className = 'status-message ' + 
+                    (data.error ? 'status-error' : 
+                     data.progress === 100 ? 'status-success' : 'status-info');
+                
+                // Update MLflow info
+                if (data.experiment_name) experiment_name.textContent = data.experiment_name;
+                if (data.run_id) runId.textContent = data.run_id;
+                if (data.start_time) startTime.textContent = data.start_time;
+                if (data.end_time) endTime.textContent = data.end_time;
+                
+                // Update GAN training metrics
+                document.getElementById('ganCurrentEpoch').textContent = data.current_epoch || '-';
+                document.getElementById('ganTotalEpochs').textContent = data.total_epochs || '-';
+                document.getElementById('ganCurrentGLoss').textContent = data.current_g_loss ? data.current_g_loss.toFixed(4) : '-';
+                document.getElementById('ganCurrentDLoss').textContent = data.current_d_loss ? data.current_d_loss.toFixed(4) : '-';
+                document.getElementById('ganCurrentPerplexity').textContent = data.current_perplexity ? data.current_perplexity.toFixed(4) : '-';   
+
+                // Check if GAN training is complete
+                if (!data.running) {
+                    clearInterval(ganTrainingStatusInterval);
+                    resetGanTrainingUI();
+                }
+            });
+    }
+    
+ 
+    function resetGanTrainingUI() {
+        const btn = document.getElementById('startGanTrainingBtn');
+        {% if training_available %}
+        btn.disabled = false;
+        {% else %}
+        btn.disabled = true;
+        {% endif %}
+        btn.textContent = '🤖 Start GAN Training';
+    }
+</script>
+{% endblock %}

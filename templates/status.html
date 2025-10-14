@@ -46,48 +46,17 @@
         </div>
     </div>
 </div>
-<div class="grid">
+<div>
     <div class="card">
-        <h3>🔬 MLflow Experiments</h3>
-        <p>View detailed metrics and artifacts in MLflow UI:</p>
-        <ol>
-            <li>Run <code>mlflow ui</code> in terminal</li>
-            <li>Open <a href="http://127.0.0.1:5000" target="_blank">http://127.0.0.1:5000</a></li>
-        </ol>
-        <div id="mlflowRunIds" style="margin-top: 15px;"></div>
+        <!--last Registered Model-->
+        <h3>🧠 Last Registered Model</h3>
+        <p><strong>Name:</strong> <span id="modelName">-</span></p>
+        <p><strong>Version:</strong> <span id="modelVersion">-</span></p>
+        <p><strong>Status:</strong> <span id="modelStatus">-</span></p>
+        <p><strong>Creation Time:</strong> <span id="modelTime">-</span></p>
     </div>
-    
-    <div class="card">
-        <h3>📁 Output Files</h3>
-        <div id="outputFiles">
-            <p>Generated files:</p>
-            <ul id="filesList">
-                <li id="datasetFile" style="color: #666;">creative_writing_dataset.csv (pending)</li>
-                <li id="modelFile" style="color: #666;">./gpt2_finetuned/ (pending)</li>
-            </ul>
-            <button onclick="downloadDataset()" class="btn" style="margin-top: 15px;" disabled id="downloadBtn">
-                📥 Download Dataset
-            </button>
-        </div>
-    </div>
-    <div class="card">
-    <h3>📦 Last Registered Model</h3>
-    <p><strong>Name:</strong> <span id="modelName">-</span></p>
-    <p><strong>Version:</strong> <span id="modelVersion">-</span></p>
-    <p><strong>Status:</strong> <span id="modelStatus">-</span></p>
-    <p><strong>Creation Time:</strong> <span id="modelTime">-</span></p>
-</div>
 </div>
 
-<div class="info-section">
-    <h3>🎮 Quick Actions</h3>
-    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-        <a href="/preprocessing" class="btn" style="flex: 1; text-decoration: none; text-align: center;">🔄 Go to Preprocessing</a>
-        <a href="/training" class="btn" style="flex: 1; text-decoration: none; text-align: center;">🚀 Go to Training</a>
-        <a href="/generating" class="btn" style="flex: 1; text-decoration: none; text-align: center;">📝 Go to Generating</a>
-        <button onclick="refreshStatus()" class="btn" style="flex: 1;">🔄 Refresh Status</button>
-    </div>
-</div>
 {% endblock %}
 
 {% block extra_scripts %}

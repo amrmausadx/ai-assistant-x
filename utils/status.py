@@ -26,6 +26,22 @@ training_status = {
     'current_epoch': 0,
     'total_epochs': 0,
     'current_loss': None,
+    'current_perplexity': None,
+    'experiment_name':None,
+}
+
+gan_training_status = {
+    'running': False,
+    'progress': 0,
+    'message': 'Ready to start',
+    'error': None,
+    'start_time': None,
+    'end_time': None,
+    'run_id': None,
+    'current_epoch': 0,
+    'total_epochs': 0,
+    'current_loss': None,
+    'current_perplexity': None,
     'experiment_name':None,
 }
 
@@ -58,7 +74,7 @@ def reset_generation_status():
         "output_length": 0,
         "output_text": "",
         "experiment_name": None,
-        "config": {}
+        "current_perplexity": None,
     }
 def update_preprocessing_status(**kwargs):
     """Update preprocessing status"""
@@ -140,8 +156,8 @@ def reset_training_status():
 # GAN training status functions
 def reset_gan_training_status():
     """Reset GAN training status to initial state"""
-    global training_status
-    training_status = {
+    global gan_training_status
+    gan_training_status = {
         'running': False,
         'progress': 0,
         'message': 'Ready to start GAN training',
@@ -153,11 +169,12 @@ def reset_gan_training_status():
         'total_epochs': 0,
         'current_loss': None,
         'experiment_name':None,
+        'current_perplexity': None,
     }
 def get_gan_training_status():
     """Get GAN training status with formatted timestamps"""
-    status_copy = training_status.copy()
-    
+    status_copy = gan_training_status.copy()
+
     if status_copy['start_time']:
         status_copy['start_time'] = status_copy['start_time'].strftime('%Y-%m-%d %H:%M:%S')
     if status_copy['end_time']:
@@ -166,5 +183,5 @@ def get_gan_training_status():
     return status_copy
 def update_gan_training_status(**kwargs):
     """Update GAN training status"""
-    global training_status
-    training_status.update(kwargs)
+    global gan_training_status
+    gan_training_status.update(kwargs)

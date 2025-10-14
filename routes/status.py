@@ -22,6 +22,11 @@ def training_status():
     """Get training status"""
     return jsonify(get_training_status())
 
+@status_bp.route('/gantraining', methods=['GET'])
+def gantraining_status():
+    """Get GAN training status"""
+    return jsonify(get_gan_training_status())
+
 @status_bp.route('/gan_training', methods=['GET'])
 def gan_training_status():
     """Get GAN training status"""
@@ -40,18 +45,34 @@ def all_status():
 def get_last_registered_model():
     client = MlflowClient()
     try:
-        # Get the latest model
-        experiments = client.search_experiments(order_by=["creation_time DESC"])
-        exp_name = experiments[0]
-        model_name = exp_name + "-model"
+        # 1. Fetch all registered models (sorted by last updated)
+        registered_models = client.search_registered_models(order_by=["last_updated_timestamp DESC"])
 
+        if not registered_models:
+            return jsonify({
+                "name": None,
+                "version": None,
+                "status": "No models found",
+                "creation_time": None
+            })
+        # 2. Get the latest model
+        latest_model = registered_models[0]
+        latest_version = latest_model.latest_versions[0] if latest_model.latest_versions else None
+        if not latest_version:
+            return jsonify({
+                "name": latest_model.name,
+                "version": None,
+                "status": "No versions found",
+                "creation_time": None
+            })
+        # 3. Return relevant details
         return jsonify({
-            "name": client.get_registered_model(model_name).name,
-            "version": client.get_registered_model(model_name)._latest_version,
-            "status": "Ready",
-            "creation_time": client.get_registered_model(model_name).last_updated_timestamp
-            }) 
-    
+            "name": latest_model.name,
+            "version": latest_version.version,
+            "status": latest_version.current_stage,
+            "creation_time": latest_version.creation_timestamp
+        })
+
     except Exception as e:
         print(e)
         return jsonify({

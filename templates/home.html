@@ -5,51 +5,45 @@
 {% block content %}
 <h1>🚀 Creative Writing ML Pipeline</h1>
 
-<div class="info-section">
-    <h2>Welcome to the Creative Writing ML Pipeline</h2>
-    <p>This comprehensive tool helps you build and train language models for creative writing applications. Follow the pipeline steps to preprocess data, train models, and monitor your experiments.</p>
-</div>
 
-<div class="grid">
+<div class="info-section" >
     <div class="card">
-        <h3>📚 Step 1: Data Preprocessing</h3>
-        <p>Clean and prepare text data from multiple sources including Gutenberg Project, WikiText, and poetry collections.</p>
-        <a href="/preprocessing" class="btn" style="display: inline-block; text-align: center; text-decoration: none; margin-top: 15px;">Start Preprocessing</a>
+        <h2>Welcome to the Creative Writing ML Pipeline</h2>
+        <p>This comprehensive tool helps you build and train language models for creative writing applications. Follow the pipeline steps to preprocess data, train models, and monitor your experiments.</p>
     </div>
-    <div class="card">
-        <h3>🤖 Step 2: Model Training</h3>
-        <p>Fine-tune GPT-2 models on your preprocessed data with customizable hyperparameters and automatic evaluation.</p>
-        <a href="/training" class="btn" style="display: inline-block; text-align: center; text-decoration: none; margin-top: 15px;">Configure Training</a>
+</div>
+<div class="info-section">
+    <div class="grid">
+        <div class="card">
+                <h3>📚 Step 1: Data Preprocessing</h3>
+                <p>Clean and prepare text data from multiple sources including Gutenberg Project, WikiText, and poetry collections.</p>
+                <a href="/preprocessing" class="btn" style="display: inline-block; text-align: center; text-decoration: none; margin-top: 15px;">Start Preprocessing</a>
+            </div>
+            <div class="card">
+                <h3>🤖 Step 2: Model Training</h3>
+                <p>Fine-tune GPT-2 models on your preprocessed data with customizable hyperparameters and automatic evaluation.</p>
+                <a href="/training" class="btn" style="display: inline-block; text-align: center; text-decoration: none; margin-top: 15px;">Configure Training</a>
+            </div>
     </div>
-     <div class="card">
-        <h3>📊 Step 3: Generating Text</h3>
-        <p>Generate creative text using the trained model with customizable prompts and settings.</p>
-        <a href="/generating" class="btn" style="display: inline-block; text-align: center; text-decoration: none; margin-top: 15px;">Start Generating</a>
-    </div>
-    <div align="center">
-        <div class="card" align="center">
+</div>
+<div class="info-section">
+    <div class="grid">
+        <div class="card">
+            <h3>📊 Step 3: Generating Text</h3>
+            <p>Generate creative text using the trained model with customizable prompts and settings.</p>
+            <a href="/generating" class="btn" style="display: inline-block; text-align: center; text-decoration: none; margin-top: 15px;">Start Generating</a>
+        </div>
+    
+        <div class="card">
             <h3>📊 Step 4: Monitor Progress</h3>
             <p>Track preprocessing and training progress in real-time, view metrics, and access MLflow experiment tracking.</p>
             <a href="/status" class="btn" style="display: inline-block; text-align: center; text-decoration: none; margin-top: 15px;">View Status</a>
         </div>
     </div>
-    
 </div>
-
-<div class="info-section">
-    <h3>🔬 MLflow Integration</h3>
-    <p>This pipeline uses MLflow for comprehensive experiment tracking. To view detailed metrics and artifacts:</p>
-    <ol>
-        <li>Run <code>mlflow ui</code> in your terminal</li>
-        <li>Open <a href="http://127.0.0.1:5000" target="_blank">http://127.0.0.1:5000</a> in your browser</li>
-        <li>Browse experiments, compare runs, and download artifacts</li>
-    </ol>
-</div>
-
 <div class="grid">
     <div class="card">
         <h3>📋 System Status</h3>
-        <div style="margin-top: 15px;">
             <p><strong>Preprocessing:</strong> 
                 {% if dependencies.preprocessing %}
                     <span style="color: #22543d;">✅ Available</span>
@@ -71,16 +65,15 @@
                     <span style="color: #822727;">❌ Missing dependencies</span>
                 {% endif %} 
             {% if dependencies.errors %}
-                <div style="margin-top: 10px; font-size: 0.9em; color: #744210;">
+                <div style="font-size: 0.9em; color: #744210;">
                     <strong>Issues:</strong>
-                    <ul style="margin-left: 20px;">
+                    <ul>
                         {% for error in dependencies.errors %}
                             <li>{{ error }}</li>
                         {% endfor %}
                     </ul>
                 </div>
             {% endif %}
-        </div>
     </div>
     
     <div class="card">
@@ -95,7 +88,7 @@ python -m spacy download en_core_web_sm</pre>
 <div class="grid">
     <div class="card">
         <h3>📋 Prerequisites</h3>
-        <ul style="margin-left: 20px;">
+        <ul>
             <li>Python 3.7+</li>
             <li>Required packages: transformers, torch, datasets, mlflow</li>
             <li>Optional: CUDA-compatible GPU for faster training</li>
@@ -104,7 +97,7 @@ python -m spacy download en_core_web_sm</pre>
     
     <div class="card">
         <h3>🎯 Features</h3>
-        <ul style="margin-left: 20px;">
+        <ul>
             <li>Automated data cleaning and tokenization</li>
             <li>Real-time progress tracking</li>
             <li>Comprehensive model evaluation</li>

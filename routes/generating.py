@@ -33,7 +33,7 @@ def start_generation():
         start_time=config["start_time"],
         input_length=len(config["prompt"] or ""),
         experiment_name=config["experiment_name"],
-        config=config,  # save entire config for status API
+        current_perplexity=config.get("current_perplexity", ""),
     )
 
     thread = threading.Thread(target=run_generation, args=(config,))

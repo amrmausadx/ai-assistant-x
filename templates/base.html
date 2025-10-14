@@ -52,6 +52,11 @@
             gap: 2rem;
         }
         
+        .nav-links a.locked {
+            pointer-events: none;
+            opacity: 0.5;
+        }
+        
         .nav-links a {
             text-decoration: none;
             color: #4a5568;
@@ -254,23 +259,173 @@
 <body>
     <nav class="navbar">
         <div class="nav-container">
-            <div class="nav-logo">🤖 ML Pipeline</div>
+            <div class="nav-logo">🤖 AI-Assistant Writing</div>
             <ul class="nav-links">
                 <li><a href="/" class="{{ 'active' if active_page == 'home' else '' }}">🏠 Home</a></li>
                 <li><a href="/preprocessing" class="{{ 'active' if active_page == 'preprocessing' else '' }}">🔄 Preprocessing</a></li>
                 <li><a href="/training" class="{{ 'active' if active_page == 'training' else '' }}">🚀 Training</a></li>
+                <li><a href="/gantraining" class="{{ 'active' if active_page == 'gantraining' else '' }}">🤖 GAN </a></li>
                 <li><a href="/generating" class="{{ 'active' if active_page == 'generating' else '' }}">✍️ Generating</a></li>
                 <li><a href="/status" class="{{ 'active' if active_page == 'status' else '' }}">📊 Status</a></li>
             </ul>
         </div>
     </nav>
-    
+    <!-- Process Running Indicator -->
+    <div class="process-indicator" id="processIndicator">
+        <div class="spinner"></div>
+        <span id="processText">Process running...</span>
+    </div>
     <div class="container">
         <div class="main-content">
             {% block content %}{% endblock %}
         </div>
     </div>
-    
+    <!-- Navigation Lock Script -->
+    <script>
+        // Global state
+        let processState = {
+            isRunning: false,
+            processType: null,
+            progress: 0
+        };
+
+        // Check all process statuses
+        async function checkAllStatuses() {
+            try {
+                const [prepRes, trainRes, ganRes, genRes] = await Promise.all([
+                    fetch('/api/preprocessing/status'),
+                    fetch('/api/training/status'),
+                    fetch('/api/gantraining/status'),
+                    fetch('/api/generating/status'),
+                ]);
+                
+                const prep = await prepRes.json();
+                const train = await trainRes.json();
+                const gan = await ganRes.json();
+                const gen = await genRes.json();
+                
+                // Determine which process is running
+                if (prep.running) {
+                    processState = { 
+                        isRunning: true, 
+                        processType: 'Preprocessing',
+                        progress: prep.progress || 0
+                    };
+                } else if (train.running) {
+                    processState = { 
+                        isRunning: true, 
+                        processType: 'Training',
+                        progress: train.progress || 0
+                    };
+                } else if (gan.running) {
+                    processState = { 
+                        isRunning: true, 
+                        processType: 'GAN Training',
+                        progress: gan.progress || 0
+                    };
+                } else if (gen.running) {
+                    processState = { 
+                        isRunning: true, 
+                        processType: 'Generating',
+                        progress: gen.progress || 0
+                    };
+                }  else {
+                    processState = { 
+                        isRunning: false, 
+                        processType: null,
+                        progress: 0
+                    };
+                }
+                
+                // Update UI
+                updateNavigationLock();
+                updateProcessIndicator();
+                
+            } catch (err) {
+                console.error("Error fetching status:", err);
+            }
+        }
+
+        // Update navigation links based on process state
+        function updateNavigationLock() {
+            const navLinks = document.querySelectorAll('.nav-links a');
+            const currentPath = window.location.pathname;
+            
+            navLinks.forEach(link => {
+                if (processState.isRunning) {
+                    // Don't lock current page link
+                    if (link.getAttribute('href') !== currentPath) {
+                        link.classList.add('locked');
+                    }
+                } else {
+                    link.classList.remove('locked');
+                }
+            });
+        }
+
+        // Update process indicator
+        function updateProcessIndicator() {
+            const indicator = document.getElementById('processIndicator');
+            const processText = document.getElementById('processText');
+            
+            if (processState.isRunning) {
+                indicator.classList.add('show');
+                processText.textContent = `${processState.processType} running... ${Math.round(processState.progress)}%`;
+            } else {
+                indicator.classList.remove('show');
+            }
+        }
+
+        // Prevent navigation while process is running
+        document.addEventListener('click', function(event) {
+            const link = event.target.closest('.nav-links a');
+            
+            if (link && processState.isRunning) {
+                const currentPath = window.location.pathname;
+                const targetPath = link.getAttribute('href');
+                
+                // Allow staying on current page
+                if (targetPath !== currentPath) {
+                    event.preventDefault();
+                    
+                    // Show user-friendly alert
+                    const confirmLeave = confirm(
+                        `⚠️ Warning: ${processState.processType} is currently running (${Math.round(processState.progress)}%).\n\n` +
+                        `Navigating away may interrupt the process and cause data loss.\n\n` +
+                        `Do you want to continue anyway?`
+                    );
+                    
+                    if (confirmLeave) {
+                        // User confirmed, allow navigation
+                        window.location.href = targetPath;
+                    }
+                }
+            }
+        }, true); // Use capture phase to catch before other handlers
+
+        // Prevent browser back/forward during process
+        window.addEventListener('beforeunload', function(event) {
+            if (processState.isRunning) {
+                const message = `${processState.processType} is still running. Are you sure you want to leave?`;
+                event.preventDefault();
+                event.returnValue = message;
+                return message;
+            }
+        });
+
+        // Check status every 2 seconds
+        setInterval(checkAllStatuses, 2000);
+        
+        // Initial check
+        checkAllStatuses();
+
+        // Also check when page becomes visible (user switches back to tab)
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                checkAllStatuses();
+            }
+        });
+    </script>
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

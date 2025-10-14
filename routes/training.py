@@ -4,7 +4,7 @@ API routes for training functionality
 import threading
 from flask import Blueprint, jsonify, request
 from training.pipeline import run_training_pipeline
-from training.GAN_pipeline import run_gan_training
+from gantraining.GAN_pipeline import run_gan_training
 from utils.status import get_training_status, training_status,get_gan_training_status
 
 training_bp = Blueprint('training', __name__)

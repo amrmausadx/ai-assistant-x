@@ -72,17 +72,18 @@ def run_generation(config: dict):
             if model_name == "./gpt2_finetuned/":
                 text = _generate_from_mlflow_model(
                     enhanced_prompt, max_length, temperature, 
-                    experiment_name, run, device
+                    experiment_name
                 )
             else:
                 text = _generate_from_pretrained(
                     enhanced_prompt, max_length, temperature,
-                    model_name, run, device
+                    model_name, device
                 )
             
             # Calculate quality metrics
             quality_scores = calculate_text_quality(text, prompt)
-            
+            #calculate perplexity
+            perplexity = torch.exp(torch.tensor(quality_scores["overall_quality"])) if quality_scores["overall_quality"] < 20 else float("inf")
             # Log metrics
             duration = time.time() - run.info.start_time / 1000  # Convert to seconds
             mlflow.log_metric("generation_time_seconds", duration)
@@ -103,6 +104,7 @@ def run_generation(config: dict):
                 run_id=run.info.run_id,
                 experiment=experiment_name,
                 output_length=len(text),
+                current_perplexity=perplexity.item() if isinstance(perplexity, torch.Tensor) else perplexity,
                 output_text=text
             )
             
@@ -120,7 +122,7 @@ def run_generation(config: dict):
         mlflow.end_run(status="FAILED")
         raise
 
-def _generate_from_mlflow_model(prompt, max_length, temperature, experiment_name, run, device):
+def _generate_from_mlflow_model(prompt, max_length, temperature, experiment_name):
     """Generate from MLflow registered model"""
     update_generation_status(progress=20, message="Loading fine-tuned model from MLflow...")
     
@@ -129,17 +131,17 @@ def _generate_from_mlflow_model(prompt, max_length, temperature, experiment_name
     # Try to get production model first, fall back to latest
     try:
         model_versions = client.get_latest_versions(
-            "creative-writing-model",
+            experiment_name + "-model",
             stages=["Production"]
         )
         if not model_versions:
             model_versions = client.get_latest_versions(
-                "creative-writing-model",
+                experiment_name + "-model",
                 stages=["None"]
             )
         
         latest_version = model_versions[-1].version
-        logged_model = f"models:/creative-writing-model/{latest_version}"
+        logged_model = f"models:/{experiment_name}-model/{latest_version}"
         
         mlflow.log_param("model_version", latest_version)
         
@@ -176,7 +178,7 @@ def _generate_from_mlflow_model(prompt, max_length, temperature, experiment_name
     return text
 
 
-def _generate_from_pretrained(prompt, max_length, temperature, model_name, run, device):
+def _generate_from_pretrained(prompt, max_length, temperature, model_name, device):
     """Generate from pretrained model"""
     update_generation_status(progress=20, message=f"Loading {model_name}...")
     

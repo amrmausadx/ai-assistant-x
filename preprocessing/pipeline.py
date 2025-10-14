@@ -92,6 +92,7 @@ def run_preprocessing_pipeline(config,opt=None):
             end_time=datetime.now(),
             experiment_name = config["experiment_name"],
         )
+        mlflow.end_run(status="FAILED")
         
         # Log error to MLflow if possible
         try:
