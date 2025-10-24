@@ -47,17 +47,23 @@
                 <option value="distilgpt2">DistilGPT-2 (82M)</option>
                 <option value="facebook/bart-base">BART Base (139M)</option>
                 <option value="facebook/bart-large">BART Large (406M)</option>
-                <option value="Qwen/Qwen2.5-1.5B-Instruct">Qwen 2.5B (1.5B)</option>
-            </select>
+                <option value="Qwen/Qwen2.5-1.5B-Instruct">Qwen 2.5B (~1.8 GB)</option>
+                <option value="mistralai/Mixtral-8x7B-v0.1">Mixtral (8x7B)</option>
+            </select> 
+            
         </div>
     </div>
-    
+    <div class="form-row">
+        <div class="form-group">
+            <input type="checkbox" id="quantize" name="quantize" value="true" style="width: auto; margin-right: 10px;">
+            <label for="quantize" style="display: inline;">Enable 4-bit quantization (must be cuda available)</label>
+        </div>
+    </div>
     <div class="form-row">
         <div class="form-group">
             <label for="experiment_name">Experiment Name:</label>
             <input type="text" id="experiment_name" name="experiment_name" value="creative-writing">
         </div>
-        
         <div class="form-group">
             <label for="output_dir">Output Directory:</label>
             <input type="text" id="output_dir" name="output_dir" value="./gpt2_finetuned">
@@ -104,6 +110,7 @@
         <input type="checkbox" id="fp16" name="fp16" style="width: auto; margin-right: 10px;">
         <label for="fp16" style="display: inline;">Enable Mixed Precision (FP16) - Faster training, requires compatible GPU</label>
     </div>
+    
     
     <button type="submit" id="startTrainingBtn" class="btn" {{ 'disabled' if not training_available else '' }}>
         🚀 Start Training
@@ -159,7 +166,7 @@
         const config = {};
         
         for (let [key, value] of formData.entries()) {
-            if (key === 'fp16') {
+            if (key === 'fp16' || key === 'quantize') {
                 config[key] = true;
             } else if (['num_train_epochs', 'train_batch_size', 'eval_batch_size', 'block_size'].includes(key)) {
                 config[key] = parseInt(value);
@@ -242,11 +249,13 @@
     
     function resetTrainingUI() {
         const btn = document.getElementById('startTrainingBtn');
+        
         {% if training_available %}
-        btn.disabled = false;
+            btn.disabled = false;
         {% else %}
-        btn.disabled = true;
+            btn.disabled = true;
         {% endif %}
+        
         btn.textContent = '🚀 Start Training';
     }
     

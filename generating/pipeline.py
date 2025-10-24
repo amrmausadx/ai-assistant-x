@@ -46,7 +46,11 @@ def run_generation(config: dict):
         enhanced_prompt = build_creative_prompt(prompt,style)
         run_name = "text_generation"
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = None
+        try:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except:
+            device = "cpu"
         #check if user choose./gpt2_finetuned/
         mlflow.set_experiment(experiment_name)
         with mlflow.start_run(run_name=run_name) as run:

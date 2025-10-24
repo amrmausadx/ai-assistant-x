@@ -19,3 +19,4 @@ torchvision
 scikit-learn==1.6.1
 accelerate>=0.26.0
 torchaudio 
+bitsandbytes==0.43.3

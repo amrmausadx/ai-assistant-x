@@ -59,8 +59,11 @@ def run_gan_training(config, real_texts=None):
     - Discriminator: classification head on top of transformer encoder
     - Config includes learning rates, batch size, epochs, etc.
     """
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
+    device = None
+    try:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+    except:
+            device = "cpu"
     mlflow.set_experiment(config['experiment_name'])
     mlflow.autolog()
     with mlflow.start_run(run_name="GAN_Training") as run:
@@ -117,8 +120,8 @@ def run_gan_training(config, real_texts=None):
             # -------------------------
             # Training Loop
             # -------------------------
-            real_texts = config["real_texts"].split(",")
-            prompts = config.get("prompts").split(",")
+            real_texts = config["real_texts"].split(";")
+            prompts = config.get("prompts").split(";")
             real_texts = [t.strip() for t in real_texts if isinstance(t, str) and t.strip() != ""]
             prompts = [t.strip() for t in prompts if isinstance(t, str) and t.strip() != ""]
 

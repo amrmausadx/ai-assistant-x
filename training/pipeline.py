@@ -14,6 +14,7 @@ from transformers import (
     DataCollatorForLanguageModeling,
     Trainer,
     TrainingArguments,
+    BitsAndBytesConfig,
 )
 
 from .core import MLflowCallback, evaluate_model, prepare_tokenization_function
@@ -60,12 +61,18 @@ def _run_baseline_training(config):
         current_loss=None,
         current_perplexity=None,
         experiment_name = config["experiment_name"],
+        quantize=config.get("quantize", False),
     )
 
     try:
         mlflow.set_experiment(config["experiment_name"])
         mlflow.autolog()
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = None
+        try:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except:
+            device = "cpu"
+        use_quantize = config.get("quantize", False) 
 
         with mlflow.start_run(run_name="gpt2_finetuning") as run:
             update_training_status(run_id=run.info.run_id)
@@ -74,14 +81,30 @@ def _run_baseline_training(config):
             for key, value in config.items():
                 mlflow.log_param(key, value)
 
-            # tokenizer & model
+            # Load model
             update_training_status(progress=5, message="Loading tokenizer and model...")
+            # Load tokenizer
             tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
-            model = AutoModelForCausalLM.from_pretrained(config["model_name"]).to(device)
+            if use_quantize:
+                update_training_status(message="Using 4-bit quantization for model...", progress=2)
+                bnb_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_use_double_quant=True,
+                        bnb_4bit_compute_dtype=torch.float16
+                    )
+                model = AutoModelForCausalLM.from_pretrained(
+                        config["model_name"],
+                        device_map="auto",
+                        quantization_config=bnb_config,
+                    )
+                
+            else:
+                model = AutoModelForCausalLM.from_pretrained(config["model_name"]).to(device)
+            
+            # Ensure tokenizer and model embeddings match
             model.resize_token_embeddings(len(tokenizer))
-
             mlflow.log_param("model_parameters", sum(p.numel() for p in model.parameters()))
 
             # dataset

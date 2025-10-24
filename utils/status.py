@@ -43,6 +43,7 @@ gan_training_status = {
     'current_loss': None,
     'current_perplexity': None,
     'experiment_name':None,
+    'quantize': False,
 }
 
 generation_status = {

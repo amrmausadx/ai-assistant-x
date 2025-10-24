@@ -55,13 +55,15 @@
     </div>
     <!--real texts for discriminator training -->
     <div class="form-group">
-        <label for="real_texts">Real Texts for Discriminator Training (comma-separated):</label>
-        <input type="text" id="real_texts" name="real_texts" value="The sun set behind the hills,She whispered softly into the night,In the dark forest,The ancient ruins stood silent,As the spaceship landed on the alien terrain,The detective pondered over the clues \n">        
+        <label for="real_texts">Real Texts for Discriminator Training (semi-colon separated):</label>
+        <input type="text" id="real_texts" name="real_texts" value="Lina found an old  rusted key while cleaning her grandmother’s attic. It looked ordinary  but something about its intricate design felt special. That night  curiosity won—she tried it on every drawer and door in the house. When she finally placed it into a tiny box hidden behind a shelf  the lock clicked open to reveal a stack of yellowed letters written by her grandmother to a man named Elias. Reading them  Lina discovered a love story that had been kept secret for sixty years.
+; Every morning  a paper bird appeared on Samir’s windowsill—folded neatly  wings poised as if ready to fly. He didn’t know who left them there  but each one carried a single word: hope  courage  smile. On a stormy day  no bird came  and Samir felt a strange emptiness. The next morning  he found a drenched figure outside—his shy neighbor  Mira  holding a paper crane. “I didn’t want you to wake up without one ” she said softly. From then on  they folded the birds together.">        
     </div>
     <!--prompts for generator-->
     <div class="form-group">
-            <label for="prompts">Prompts for Generator (comma-separated):</label>
-            <input type="text" id="prompts" name="prompts" value="The sun set behind , She whispered softly , In the dark forest , The ancient ruins stood silent , As the spaceship landed on the alien terrain , The detective pondered over the clues">
+            <label for="prompts">Prompts for Generator (semi-colon separated):</label>
+            <input type="text" id="prompts" name="prompts" value="Lina found an old  rusted key while cleaning her grandmother’s attic
+; Every morning  a paper bird appeared on Samir’s windowsill—folded neatly  wings poised as if ready to fly. ">
     </div>
     <!--output directory-->
     <div class="form-group">
@@ -208,9 +210,9 @@
     function resetGanTrainingUI() {
         const btn = document.getElementById('startGanTrainingBtn');
         {% if training_available %}
-        btn.disabled = false;
+            btn.disabled = false;
         {% else %}
-        btn.disabled = true;
+            btn.disabled = true;
         {% endif %}
         btn.textContent = '🤖 Start GAN Training';
     }

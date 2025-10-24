@@ -3,7 +3,10 @@
 conda create -n mlflow_ai_env
 conda init
 conda activate mlflow_ai_env
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip uninstall torch torchvision torchaudio -y
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu129
+pip install bitsandbytes==0.43.3
+
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 
@@ -13,7 +16,7 @@ python app.py
 
 #############################################
 git add .
-git commit -m ""
+git commit -m "Add GAN TAB, Enhance UI"
 git push origin main
 
 ###########################################
