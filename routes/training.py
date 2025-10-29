@@ -38,7 +38,6 @@ def start_training():
     # Set default values
     config.setdefault('num_train_epochs', 1)
     config.setdefault('train_batch_size', 2)
-    config.setdefault('eval_batch_size', 2)
     config.setdefault('learning_rate', 1e-3)
     config.setdefault('block_size', 256)
     config.setdefault('test_size', 0.1)

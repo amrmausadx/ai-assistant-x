@@ -66,7 +66,7 @@ def _run_baseline_training(config):
 
     try:
         mlflow.set_experiment(config["experiment_name"])
-        mlflow.autolog()
+        
         device = None
         try:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -109,10 +109,12 @@ def _run_baseline_training(config):
 
             # dataset
             update_training_status(progress=10, message="Loading dataset...")
-            if not os.path.exists(config["input_csv"]):
-                raise FileNotFoundError(f"{config['input_csv']} not found. Please run preprocessing first.")
+            output_file = os.path.join("static", "datasets.csv")
 
-            dataset = load_dataset("csv", data_files={"data": config["input_csv"]})["data"]
+            if not os.path.exists(output_file):
+                raise FileNotFoundError(f"{output_file} not found. Please run preprocessing first.")
+
+            dataset = load_dataset("csv", data_files={"data": output_file})["data"]
             dataset = dataset.shuffle(seed=config.get("seed", 42))
             split = dataset.train_test_split(test_size=config.get("test_size", 0.05), seed=config.get("seed", 42))
 
@@ -141,14 +143,15 @@ def _run_baseline_training(config):
                 overwrite_output_dir=True,
                 num_train_epochs=config["num_train_epochs"],
                 per_device_train_batch_size=config["train_batch_size"],
-                per_device_eval_batch_size=config["eval_batch_size"],
+                per_device_eval_batch_size=config["train_batch_size"],
                 gradient_accumulation_steps=config.get("gradient_accumulation_steps", 1),
                 do_eval=True,
-                eval_steps=config.get("eval_steps", 200),
+                eval_steps=config.get("eval_steps", 50),
                 save_strategy="steps",
-                save_steps=config.get("save_steps", 200),
+                save_steps=config.get("save_steps", 100),
+                logging_first_step=True,
                 logging_strategy="steps",
-                logging_steps=config.get("logging_steps", 50),
+                logging_steps=config.get("logging_steps", 100),
                 learning_rate=config["learning_rate"],
                 weight_decay=0.01,
                 warmup_steps=min(
@@ -190,7 +193,7 @@ def _run_baseline_training(config):
             # evaluate
             update_training_status(progress=90, message="Evaluating model...",current_perplexity=perplexity)
             evaluate_model(trainer, tokenizer, config)
-
+            mlflow.autolog()
             update_training_status(
                 progress=100,
                 message="✅ Training completed successfully!",
@@ -277,14 +280,15 @@ def _run_optimized_training(config):
                 overwrite_output_dir=True,
                 num_train_epochs=config["num_train_epochs"],
                 per_device_train_batch_size=config["train_batch_size"],
-                per_device_eval_batch_size=config["eval_batch_size"],
+                per_device_eval_batch_size=config["train_batch_size"],
                 gradient_accumulation_steps=config.get("gradient_accumulation_steps", 1),
                 eval_strategy="steps",
-                eval_steps=config.get("eval_steps", 200),
                 save_strategy="steps",
-                save_steps=config.get("save_steps", 200),
                 logging_strategy="steps",
-                logging_steps=config.get("logging_steps", 50),
+                do_eval=True,
+                eval_steps=config.get("eval_steps", 10),
+                save_steps=config.get("save_steps", 10),
+                logging_steps=config.get("logging_steps", 10),
                 learning_rate=config["learning_rate"],
                 fp16=config.get("fp16", False),
                 dataloader_num_workers=config.get("dataloader_num_workers", 0),

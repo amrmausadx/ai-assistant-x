@@ -36,3 +36,4 @@ def start_preprocessing():
 def get_status():
     """Get current preprocessing status"""
     return jsonify(get_preprocessing_status())
+

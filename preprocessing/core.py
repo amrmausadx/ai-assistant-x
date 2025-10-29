@@ -9,24 +9,37 @@ from datetime import datetime
 from utils.dependencies import get_spacy_model
 
 def clean_text(text):
-    """Clean and normalize text"""
+    """Clean and normalize text for training."""
     if not text:
         return ""
-    
+
     # Remove HTML tags
     text = BeautifulSoup(text, "html.parser").get_text()
-    
+
+    # Remove URLs
+    text = re.sub(r"http\S+|www\.\S+", "", text)
+
     # Remove Gutenberg headers/footers
     text = re.sub(r"\*\*\* START OF.*?\*\*\*", "", text, flags=re.DOTALL)
     text = re.sub(r"\*\*\* END OF.*?\*\*\*", "", text, flags=re.DOTALL)
-    
-    # Remove non-alphabetic chars except basic punctuation
+
+    # Remove non-alphanumeric except basic punctuation
     text = re.sub(r"[^a-zA-Z0-9.,;:?!'\"\-\s]", " ", text)
-    
-    # Normalize spaces
+
+    # Remove extra newlines and tabs
+    text = re.sub(r"[\r\n\t]+", " ", text)
+
+    # Normalize multiple punctuation
+    text = re.sub(r"([?.!]){2,}", r"\1", text)
+
+    # Normalize multiple spaces
     text = re.sub(r"\s+", " ", text).strip()
-    
+
+    # Optional: lowercase normalization
+    text = text.lower()
+
     return text
+
 
 def tokenize_sentences(text):
     """Split into sentences using SpaCy or fallback to regex"""
@@ -50,7 +63,7 @@ def load_gutenberg(config):
          return texts[:int(config["limit_load"])], len(texts)
      except Exception as e: 
         print(f"Failed to load Gutenberg corpus: {e}") 
-        return ["Sample Gutenberg text for demonstration purposes."],1
+        return e,1
 
 def load_bookcorpus(config):
     """Load WikiText-103 as BookCorpus substitute"""
@@ -61,7 +74,7 @@ def load_bookcorpus(config):
         return texts[:int(config["limit_load"])],len(texts)  # Limit to first 1000 for demo
     except Exception as e:
         print(f"Failed to load WikiText dataset: {e}")
-        return ["Sample WikiText data for demonstration purposes."],1
+        return e,1
 
 def load_poetry(config):
     """Load poetry dataset (using AG News as placeholder)"""
@@ -72,7 +85,40 @@ def load_poetry(config):
         return texts[:int(config["limit_load"])],len(texts)
     except Exception as e:
         print(f"Failed to load poetry dataset: {e}")
-        return ["The woods are lovely, dark and deep, but I have promises to keep..."],1
+        return e,1
+
+
+def load_chosen_dataset(dataset_name, config):
+    """Dynamically load a Hugging Face dataset and extract text intelligently."""
+    try:
+        dataset = load_dataset(dataset_name, streaming=True)
+        split_name = next(iter(dataset.keys()))
+        ds = dataset[split_name]
+        limit = int(config.get("limit_load", 100))
+        # Find text column: check common patterns, then fall back to first string column
+        text_col = next(
+            (c for c in ds.column_names 
+             if any(kw in c.lower() for kw in ["text", "content", "sentence", "poem", "body","story"])),
+            next((c for c in ds.column_names if isinstance(ds[0][c], str)), None)
+        )
+        
+        if not text_col:
+            raise ValueError(f"No text column found in {dataset_name}. Columns: {ds.column_names}")
+        
+        print(f"Using column '{text_col}' for text extraction from {dataset_name}")
+        texts=[]
+        for i, sample in enumerate(ds):
+            if i >= limit:
+                break
+            text = clean_text(sample.get(text_col, ""))
+            if text.strip():
+                texts.append(text)
+                
+        return texts[:limit], len(texts)
+    
+    except Exception as e:
+        print(f"❌ Failed to load chosen dataset '{dataset_name}': {e}")
+        return e, 0
 
 def create_preprocessing_report():
     """Generate preprocessing report"""
@@ -80,15 +126,11 @@ def create_preprocessing_report():
 Data Preprocessing Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 -------------------------
 1. Removed HTML tags using BeautifulSoup.
-2. Removed Gutenberg headers and footers using regex.
+2. Removed headers and footers using regex.
 3. Removed non-alphabetic characters except basic punctuation.
 4. Normalized whitespace.
 5. Tokenized sentences using {'SpaCy' if get_spacy_model() else 'Regex fallback'}.
-6. Loaded datasets:
-   - Gutenberg (via NLTK)
-   - BookCorpus substitute (WikiText-103)
-   - DanFosing/public-domain-poetry is a dataset
-7. Merged all sources into a single DataFrame.
+6. Loaded datasets
 8. Saved the cleaned dataset as CSV.
 
 Processing completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}

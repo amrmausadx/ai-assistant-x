@@ -82,3 +82,5 @@ def get_last_registered_model():
             "status": "Error",
             "creation_time": None
         })
+    
+

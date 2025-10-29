@@ -3,6 +3,36 @@
 {% block title %}Preprocessing - Creative Writing ML Pipeline{% endblock %}
 
 {% block content %}
+<style>
+    .dataset-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #f9fafb;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.dataset-item input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #6b46c1; /* purple tone */
+}
+
+.dataset-item label {
+    flex: 1;
+    word-break: break-word;
+    font-size: 14px;
+    color: #333;
+}
+
+.dataset-item:hover {
+    background: #f3e8ff;
+    transition: 0.2s ease-in-out;
+}
+</style>
 <h1>📚 Text Data Preprocessing</h1>
 
 <div class="info-section">
@@ -26,12 +56,22 @@
     
 </div>
 <div class="form-group">
+    <label for="datasets">Select Datasets from Hugging Face:</label>
+    <input type="text" id="search_tags" value="search=poetry+english&tags=us&limit=10&sort=downloads" style="width: 100%; margin-bottom: 10px;">
+    <div class="dataset-options"></div>
+    <button id="loadDatasetsBtn" class="btn" onclick="loadAvailableDatasets()">Load Datasets</button>
+</div>
+
+<div class="form-group">
      <label for="limit">limit to load:</label><!--input number limit to 3000  record-->
     <input type="number" id="limit_load" name="limit_load" value="100" step="100" min="100" required>
 </div>
 <div class="form-group">
      <label for="experiment_name">MLflow Experiment Name:</label>
      <input type="text" id="experiment_name" name="experiment_name" value="creative-writing" required>
+</div>
+<div class="form-group">
+    <a href="/static/datasets.txt">Download Preprocessed Dataset</a>
 </div>
 <button id="startBtn" class="btn" onclick="startPreprocessing()">
     🚀 Start Preprocessing
@@ -57,6 +97,37 @@
 
 {% block extra_scripts %}
 <script>
+    async function loadAvailableDatasets() {
+    const container = document.querySelector('.dataset-options');
+    container.innerHTML = "<p>Loading datasets...</p>";
+
+    try {
+        //load  search tags
+        const searchTags = document.getElementById('search_tags').value;
+        // Load config from data.json
+        const configResponse = await fetch('https://huggingface.co/api/datasets?' + searchTags); 
+
+
+        // Fetch datasets from Hugging Face API
+        const response = await fetch(configResponse.url);
+        const datasets = await response.json();
+
+        container.innerHTML = '';
+        datasets.forEach(ds => {
+            const name = ds.id;
+            container.innerHTML += `
+                <div class="dataset-item">
+                <input type="checkbox" name="datasets" value="${name}">
+                <label><strong>${name}</strong></label>
+                </div>
+            `;
+            });
+    } catch (error) {
+        container.innerHTML = "<p style='color:red;'>⚠️ Failed to load datasets</p>";
+        console.error(error);
+    }
+}
+
     let statusInterval;
     
     function startPreprocessing() {
@@ -68,16 +139,23 @@
         btn.textContent = '⏳ Processing...';
         progressContainer.style.display = 'block';
         mlflowInfo.style.display = 'block';
+         // Get selected datasets
+        const selectedDatasets = [];
+        document.querySelectorAll('input[name="datasets"]:checked').forEach(checkbox => {
+            selectedDatasets.push(checkbox.value);
+        });
 
         // Define config from input field
         const config = {experiment_name: document.getElementById('experiment_name').value,
             limit_load: document.getElementById('limit_load').value,
+            selected_datasets: selectedDatasets,
         };
         
+       
         
         fetch('/api/preprocessing/start', {method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(config),
+            body: JSON.stringify({ ...config, datasets: selectedDatasets }),
         })
             .then(response => response.json())
             .then(data => {

@@ -21,7 +21,7 @@ class MLflowCallback(TrainerCallback):
     def on_epoch_begin(self, args, state: TrainerState, control: TrainerControl, **kwargs):
         current_epoch = int(state.epoch) + 1
         total_epochs = int(args.num_train_epochs)
-        
+
         update_training_status(
             current_epoch=current_epoch,
             message=f'Training epoch {current_epoch}/{total_epochs}'
@@ -35,6 +35,7 @@ class MLflowCallback(TrainerCallback):
         if logs:
             # Update current loss if available
             if 'loss' in logs:
+                
                 #calculate perplexity
                 perplexity = math.exp(logs['loss']) if logs['loss'] < 20 else None
 

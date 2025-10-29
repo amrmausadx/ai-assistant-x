@@ -22,7 +22,7 @@
     <div class="card">
         <h3>📁 Dataset Requirements</h3>
         <p>Make sure you have completed the preprocessing step first. The training expects a CSV file with a 'text' column.</p>
-        <p><strong>Default file:</strong> creative_writing_dataset.csv</p>
+        <p><strong>Default file:</strong> /static/datasets.csv</p>
     </div>
     
     <div class="card">
@@ -35,7 +35,7 @@
     <div class="form-row">
         <div class="form-group">
             <label for="input_csv">Dataset CSV File:</label>
-            <input type="text" id="input_csv" name="input_csv" value="creative_writing_dataset.csv" required>
+            <input type="text" id="input_csv" name="input_csv" readonly value="/static/datasets.csv" required>
         </div>
         
         <div class="form-group">
@@ -66,14 +66,14 @@
         </div>
         <div class="form-group">
             <label for="output_dir">Output Directory:</label>
-            <input type="text" id="output_dir" name="output_dir" value="./gpt2_finetuned">
+            <input type="text" id="output_dir" name="output_dir" value="./gpt2_finetuned" readonly>
         </div>
     </div>
     
     <div class="form-row">
         <div class="form-group">
             <label for="num_train_epochs">Training Epochs:</label>
-            <input type="number" id="num_train_epochs" name="num_train_epochs" value="5" min="1" max="8">
+            <input type="number" id="num_train_epochs" name="num_train_epochs" value="5" min="1" max="100">
         </div>
         
         <div class="form-group">
@@ -87,10 +87,9 @@
             <label for="train_batch_size">Training Batch Size:</label>
             <input type="number" id="train_batch_size" name="train_batch_size" value="4" min="1" max="32">
         </div>
-        
         <div class="form-group">
-            <label for="eval_batch_size">Evaluation Batch Size:</label>
-            <input type="number" id="eval_batch_size" name="eval_batch_size" value="4" min="1" max="32">
+            <label for="test_size">Test Split Size:</label>
+            <input type="number" id="test_size" name="test_size" value="0.1" min="0.1" max="0.4" step="0.1">
         </div>
     </div>
     
@@ -100,10 +99,7 @@
             <input type="number" id="block_size" name="block_size" value="512" min="64" max="1024">
         </div>
         
-        <div class="form-group">
-            <label for="test_size">Test Split Size:</label>
-            <input type="number" id="test_size" name="test_size" value="0.1" min="0.1" max="0.4" step="0.1">
-        </div>
+        
     </div>
     
     <div class="form-group">
@@ -168,7 +164,7 @@
         for (let [key, value] of formData.entries()) {
             if (key === 'fp16' || key === 'quantize') {
                 config[key] = true;
-            } else if (['num_train_epochs', 'train_batch_size', 'eval_batch_size', 'block_size'].includes(key)) {
+            } else if (['num_train_epochs', 'train_batch_size','block_size'].includes(key)) {
                 config[key] = parseInt(value);
             } else if (['learning_rate', 'test_size', 'current_perplexity'].includes(key)) {
                 config[key] = parseFloat(value);

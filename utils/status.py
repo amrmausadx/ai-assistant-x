@@ -111,7 +111,7 @@ def get_training_status():
 
 def update_generation_status(**kwargs):
     global generation_status
-    generation_status.update(kwargs)
+    generation_status.update({k:v for k,v in kwargs.items() if v is not None})
 
 def get_generation_status():
     status_copy = generation_status.copy()

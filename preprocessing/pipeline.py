@@ -1,14 +1,18 @@
 """
 Main preprocessing pipeline
 """
+import os
+import re
 import mlflow
 import pandas as pd
 from datetime import datetime
+
+from seaborn import load_dataset
 from .core import (
+    load_chosen_dataset,
     load_gutenberg, 
     load_bookcorpus, 
     load_poetry, 
-    tokenize_sentences,
     create_preprocessing_report
 )
 from utils.status import update_preprocessing_status
@@ -34,18 +38,31 @@ def run_preprocessing_pipeline(config,opt=None):
             # Load datasets with progress updates
             update_preprocessing_status(progress=10, message='Loading Gutenberg texts...')
             gutenberg_texts,Gun_len = load_gutenberg(config)
-            
+            mlflow.log_metric("gutenberg_count", Gun_len)
+
             update_preprocessing_status(progress=30, message='Loading BookCorpus texts...')
             bookcorpus_texts,book_len = load_bookcorpus(config)
+            mlflow.log_metric("bookcorpus_count", book_len)
+            
             
             update_preprocessing_status(progress=50, message='Loading Poetry texts...')
             poetry_texts,poetry_len = load_poetry(config)
+            mlflow.log_metric("poetry_count", poetry_len)
+
+            update_preprocessing_status(progress=60, message='Loading selected datasets '+str(config['selected_datasets'])+'...')
             
-            # Log dataset sizes
-            mlflow.log_metric("gutenberg_count", len(gutenberg_texts))
-            mlflow.log_metric("bookcorpus_count", len(bookcorpus_texts))
-            mlflow.log_metric("poetry_count", len(poetry_texts))
+            # Load additional datasets if specified
+            selected_datasets = config.get("selected_datasets", [])
+            count_other_datasets = 0
+            datasets_texts = {}
+            for dataset_name in selected_datasets:
+                texts, count = load_chosen_dataset(dataset_name=dataset_name, config=config)
+                datasets_texts[dataset_name] = texts
+                count_other_datasets += count
+                mlflow.log_metric(f"{dataset_name}_count", count)
+
             
+
             update_preprocessing_status(progress=70, message='Creating DataFrame...')
             
             # Create combined DataFrame
@@ -55,18 +72,26 @@ def run_preprocessing_pipeline(config,opt=None):
                   #        ["Poetry"] * len(poetry_texts),
                 "text": gutenberg_texts + bookcorpus_texts + poetry_texts
             })
+            # Add additional datasets to DataFrame
+            for dataset_name, texts in datasets_texts.items():
+                temp_df = pd.DataFrame({
+                    #"source": [dataset_name] * len(texts),
+                    "text": texts
+                })
+                df = pd.concat([df, temp_df], ignore_index=True)    
+            update_preprocessing_status(progress=75, message='Cleaning texts...')
+            # Clean texts
+            update_preprocessing_status(progress=85, message='Cleaning sample and saving...')
             
-            update_preprocessing_status(progress=85, message='Tokenizing sample and saving...')
-            
-            # Process sample for demonstration
-            #if len(df) > 0:
-            #    sample_sentences = tokenize_sentences(df.iloc[0]["text"])
-            #    mlflow.log_text("\n".join(sample_sentences[:5]), "sample_sentences.txt")
-            
+
             # Save dataset
-            output_file = "creative_writing_dataset.csv"
+            
+            output_file = os.path.join("static", "datasets.txt")
+
+           
             df.to_csv(output_file, index=False)
             mlflow.log_artifact(output_file)
+
             #mlflow.log_metric("total_samples", len(df))
             
             # Log preprocessing report
@@ -75,7 +100,7 @@ def run_preprocessing_pipeline(config,opt=None):
             
             update_preprocessing_status(
                 progress=100,
-                message=f'✅ Preprocessing completed! Dataset size: {len(df)} samples of {Gun_len+book_len+poetry_len}',
+                message=f'✅ Preprocessing completed! Dataset size: {len(df)} samples of {Gun_len+book_len+poetry_len+count_other_datasets} total loaded texts.',
                 running=False,
                 end_time=datetime.now(),
                 experiment_name = config["experiment_name"],

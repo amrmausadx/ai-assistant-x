@@ -16,7 +16,7 @@ python app.py
 
 #############################################
 git add .
-git commit -m "Add GAN TAB, Enhance UI"
+git commit -m "add search in preprocessing to load different datasets"
 git push origin main
 
 ###########################################
