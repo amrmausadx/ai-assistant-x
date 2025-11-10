@@ -16,7 +16,7 @@ python app.py
 
 #############################################
 git add .
-git commit -m "add search in preprocessing to load different datasets"
+git commit -m "adjust style in generating"
 git push origin main
 
 ###########################################
