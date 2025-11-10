@@ -5,22 +5,24 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 from utils.status import update_generation_status,get_generation_status
 from flask import jsonify
-
+from nltk.translate.bleu_score import sentence_bleu
+from rouge_score import rouge_scorer
 from datetime import datetime
 
-def build_creative_prompt(user_prompt: str, style: str = "creative") -> str:
+def build_creative_prompt(user_prompt: str, style: str) -> str:
     """
     Build contextual prompts based on style
     """
     style_instructions = {
         "creative": "Write engaging, descriptive text with vivid imagery and smooth flow. ",
         "story": "Tell a compelling story with clear narrative structure and character development. ",
-        "descriptive": "Use rich, sensory details to paint a vivid picture. ",
-        "dialogue": "Write natural, character-driven dialogue with proper context. "
+        "poem": "Write a moving poem with rhythm, rhyme (or free verse), and profound emotion. " # Added 'poem'
     }
-    
-    instruction = style_instructions.get(style, style_instructions["creative"])
-    return instruction + user_prompt.strip() if user_prompt else instruction + "Begin your story:"
+    style = style.lower().strip() if style else "creative"
+    instruction = style_instructions.get(style)
+    return instruction + user_prompt.strip() if user_prompt else instruction + "Begin your text:"
+
+#    return instruction + user_prompt.strip() if user_prompt else instruction + "Begin your story:"
 
 def run_generation(config: dict):
     """
@@ -32,7 +34,9 @@ def run_generation(config: dict):
     temperature = config.get("temperature", 0.8)
     model_name = config.get("model_name", "gpt2")
     experiment_name = config.get("experiment_name", "generation")
-    style = config.get("style","creative")
+    style = config.get("style","creative").lower().strip() 
+    print(f"Backend received style: '{style}'")  # Add debug log
+
     seed = config.get("seed",42)
 
     set_seed(seed)
@@ -57,6 +61,7 @@ def run_generation(config: dict):
             # Log parameters
             mlflow.log_params({
                 "prompt": prompt[:100],  # Truncate long prompts in logs
+                "enhanced_prompt": enhanced_prompt[:100],  # Truncate long prompts in logs
                 "prompt_length": len(prompt),
                 "max_length": max_length,
                 "temperature": temperature,
@@ -71,7 +76,7 @@ def run_generation(config: dict):
                 experiment=experiment_name,
                 progress=10
             )
-            
+            text = ""
             # Check if using fine-tuned model
             if model_name == "./gpt2_finetuned/":
                 text = _generate_from_mlflow_model(
@@ -87,13 +92,17 @@ def run_generation(config: dict):
             # Calculate quality metrics
             quality_scores = calculate_text_quality(text, prompt)
             #calculate perplexity
-            perplexity = torch.exp(torch.tensor(quality_scores["overall_quality"])) if quality_scores["overall_quality"] < 20 else float("inf")
+            #perplexity = torch.exp(torch.tensor(quality_scores["overall_quality"])) if quality_scores["overall_quality"] < 20 else float("inf")
+            perplexity = torch.exp(torch.tensor(-quality_scores["overall_quality"]))
             # Log metrics
             duration = time.time() - run.info.start_time / 1000  # Convert to seconds
             mlflow.log_metric("generation_time_seconds", duration)
             mlflow.log_metric("output_length_chars", len(text))
             mlflow.log_metric("output_length_words", len(text.split()))
-            
+            mlflow.log_metric("perplexity", perplexity.item() if isinstance(perplexity, torch.Tensor) else perplexity)
+            mlflow.log_metric("bleu_score", quality_scores.get("bleu_score", 0.0))
+            mlflow.log_metric("rouge1_fmeasure", quality_scores.get("rouge1_fmeasure", 0.0))
+
             for metric_name, score in quality_scores.items():
                 mlflow.log_metric(f"quality_{metric_name}", score)
             
@@ -109,22 +118,30 @@ def run_generation(config: dict):
                 experiment=experiment_name,
                 output_length=len(text),
                 current_perplexity=perplexity.item() if isinstance(perplexity, torch.Tensor) else perplexity,
-                output_text=text
+                output_text=text,
+                bleu_score=quality_scores.get("bleu_score", 0.0),
+                rouge1_fmeasure=quality_scores.get("rouge1_fmeasure", 0.0),
             )
             
-            return text
+            return True
 
     except Exception as e:
-        update_generation_status(
-            running=False,
-            progress=0,
-            message=f"Generation failed: {e}",
-            error=str(e),
-            end_time=datetime.utcnow(),
-            experiment=experiment_name
-        )
+        handle_error(e,config)
+        return False
+
+
+def handle_error(e,config=None):
+    print(f"Error during generation: {e}")
+    update_generation_status(
+        experiment=config.get("experiment_name") if config else None,
+        running=False,
+        progress=0,
+        message=f"Generation failed: {e}",
+        error=str(e),
+        end_time=datetime.utcnow()
+    )
+    if config and "experiment_name" in config:
         mlflow.end_run(status="FAILED")
-        raise
 
 def _generate_from_mlflow_model(prompt, max_length, temperature, experiment_name):
     """Generate from MLflow registered model"""
@@ -150,8 +167,8 @@ def _generate_from_mlflow_model(prompt, max_length, temperature, experiment_name
         mlflow.log_param("model_version", latest_version)
         
     except Exception as e:
-        print(f"Error loading from registry: {e}")
-        raise ValueError("Fine-tuned model not found in registry. Please train a model first.")
+        handle_error(e,{"experiment_name": experiment_name})
+        return False
     
     update_generation_status(progress=40, message="Generating text...")
     
@@ -265,14 +282,22 @@ def calculate_text_quality(generated_text: str, original_prompt: str) -> dict:
     sentences = [s.strip() for s in actual_generation.replace('!', '.').replace('?', '.').split('.') if s.strip()]
     avg_sentence_length = len(words) / len(sentences) if sentences else 0
     structure_score = 1.0 if 5 <= avg_sentence_length <= 25 else 0.7
-    
+    reference = [original_prompt.lower().split()] # BLEU expects a list of reference token lists    
+    candidate = actual_generation.lower().split()    
+    bleu_score = sentence_bleu(reference, candidate, weights=(0.25, 0.25, 0.25, 0.25))
+    scorer = rouge_scorer.RougeScorer(['rouge1'], use_stemmer=True)
+    scores = scorer.score(original_prompt, actual_generation)
+    rouge1_fmeasure = scores['rouge1'].fmeasure    
     # Overall quality (weighted average)
     overall_quality = (
         length_score * 0.2 +
         diversity_score * 0.3 +
         repetition_score * 0.3 +
-        structure_score * 0.2
+        structure_score * 0.2 +
+        (bleu_score * 0.05 + rouge1_fmeasure * 0.05) 
     )
+
+
     
     return {
         "length_score": length_score,
@@ -282,6 +307,8 @@ def calculate_text_quality(generated_text: str, original_prompt: str) -> dict:
         "overall_quality": overall_quality,
         "word_count": word_count,
         "unique_words": unique_words,
-        "sentence_count": len(sentences)
+        "sentence_count": len(sentences),
+        "bleu_score": bleu_score,
+        "rouge1_fmeasure": rouge1_fmeasure
     }
 

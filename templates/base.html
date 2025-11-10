@@ -370,9 +370,10 @@
             
             if (processState.isRunning) {
                 indicator.classList.add('show');
-                processText.textContent = `${processState.processType} running... ${Math.round(processState.progress)}%`;
+                processText.textContent = `${processState.processType} running....`;
             } else {
                 indicator.classList.remove('show');
+                processText.textContent = "";
             }
         }
 

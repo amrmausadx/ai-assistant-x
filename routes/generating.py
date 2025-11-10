@@ -23,6 +23,10 @@ def start_generation():
         "experiment_name": payload.get("experiment_name", "creative-writing"),
         "model_name": payload.get("model_name", "gpt2"),  # optional extra
         "start_time": datetime.utcnow(),
+        "current_perplexity": payload.get("current_perplexity", None),
+        "bleu_score": payload.get("bleu_score", None),
+        "rouge1_fmeasure": payload.get("rouge1_fmeasure", None),
+        "style": payload.get("style", "creative").lower().strip(),
     }
 
     reset_generation_status()
@@ -34,6 +38,9 @@ def start_generation():
         input_length=len(config["prompt"] or ""),
         experiment_name=config["experiment_name"],
         current_perplexity=config.get("current_perplexity", ""),
+        bleu_score=config.get("bleu_score", ""),
+        rouge1_fmeasure=config.get("rouge1_fmeasure", ""),
+        style=config.get("style", "creative"),
     )
 
     thread = threading.Thread(target=run_generation, args=(config,))

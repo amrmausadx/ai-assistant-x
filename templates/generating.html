@@ -5,9 +5,17 @@
 <h1>✍️ Creative Generation</h1>
 
 <form id="generationForm">
-  <div class="card">
+  <div class="form-group">
+    <label for="styleprompt">Generation Style:</label>
+    <select id="styleprompt" name="styleprompt">
+      <option value="story" selected>story</option>
+      <option value="creative">creative</option>
+      <option value="poem">poem</option>
+    </select>
+  </div>
+  <div class="form-group">
       <label for="prompt">Your text / prompt</label>
-      <textarea id="prompt" name="prompt" rows="6" style="width:100%;padding:10px;font-size:15px;"></textarea>
+      <textarea id="prompt" name="prompt" rows="6" style="width:100%;padding:10px;font-size:15px;">The last dragon egg hatched deep within the mountain cavern.</textarea>
   </div>
   <div class="form-group">
             <label for="model_name">Base Model:</label>
@@ -16,7 +24,7 @@
                 <option value="gpt2-medium">GPT-2 Medium (345M)</option>
                 <option value="gpt2-large">GPT-2 Large (774M)</option>
                 <option value="distilgpt2">DistilGPT-2 (82M)</option>
-                <option value="Qwen/Qwen2.5-1.5B-Instruct">Qwen 2.5B (1.5B)</option>
+                <option value="Qwen/Qwen2.5-1.5B-Instruct">Qwen 2.5B</option>
                 <option value="./gpt2_finetuned/">Your Finetuned Model</option>
             </select>
    </div>
@@ -57,6 +65,8 @@
   <p><strong>Start Time:</strong> <span id="generationStartTime">-</span></p>
   <p><strong>End Time:</strong> <span id="generationEndTime">-</span></p>
   <p><strong>Perplexity:</strong> <span id="generationPerplexity">-</span></p>
+  <p><strong>BLEU Score:</strong> <span id="generationBleuScore">-</span></p>
+  <p><strong>ROUGE-1 F1 Score:</strong> <span id="generationRouge1Fmeasure">-</span></p>
 </div>
 
 <div class="card" style="margin-top:20px;">
@@ -84,7 +94,19 @@ function startGeneration() {
   progressContainer.style.display = 'block';
   mlflowInfo.style.display = 'block';
 
-  const payload = {
+  // Guardrail and check for the style element
+  const styleElement = document.getElementById('styleprompt');
+  
+  
+  if (!styleElement) {
+      console.error("ERROR: Could not find element with ID 'styleprompt'. UI structure might be incorrect.");
+      document.getElementById('generationStatusMessage').textContent = "ERROR: Missing UI element.";
+      btn.disabled = false;
+      return;
+  }
+
+  const config = {
+    style: styleElement.value,
     prompt: document.getElementById('prompt').value,
     model_name: document.getElementById('model_name').value,
     max_length: parseInt(document.getElementById('max_length').value),
@@ -95,49 +117,70 @@ function startGeneration() {
   fetch('/api/generating/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(config)
   })
-  .then(r => r.json())
+  .then(response => response.json())
   .then(data => {
     if (data.status === 'started') {
       generationStatusInterval = setInterval(checkGenerationStatus, 2000);
     } else {
       alert('Failed to start: ' + data.message);
-      resetUI();
+      resetGenerationUI();
     }
   })
   .catch(err => {
     alert('Error: ' + err.message);
-    resetUI();
+    resetGenerationUI();
   });
 }
 
 function checkGenerationStatus() {
   fetch('/api/generating/status')
-    .then(r => r.json())
+    .then(response => response.json())
     .then(data => {
-      document.getElementById('generationProgressFill').style.width = data.progress + '%';
-      document.getElementById('generationProgressText').textContent = data.progress + '%';
-      document.getElementById('generationStatusMessage').textContent = data.message;
+      const progressFill = document.getElementById('generationProgressFill');
+      const progressText = document.getElementById('generationProgressText');
+      const statusMessage = document.getElementById('generationStatusMessage');
+      const runId = document.getElementById('generationRunId');
+      const startTime = document.getElementById('generationStartTime');
+      const endTime = document.getElementById('generationEndTime');
+      const experiment_name = document.getElementById('generationExperiment');
+      const current_perplexity = document.getElementById('generationPerplexity');
+
+      // Update progress
+      progressFill.style.width = data.progress + '%';
+      progressText.textContent = data.progress + '%';
+                
+      // Update status message
+      statusMessage.textContent = data.message;
+      statusMessage.className = 'status-message ' + 
+            (data.error ? 'status-error' : 
+             data.progress === 100 ? 'status-success' : 'status-info');
 
       if (data.run_id) document.getElementById('generationRunId').textContent = data.run_id;
       if (data.start_time) document.getElementById('generationStartTime').textContent = data.start_time;
       if (data.end_time) document.getElementById('generationEndTime').textContent = data.end_time;
       document.getElementById('generationExperiment').textContent = data.experiment_name || '-';
+      if (data.current_perplexity) document.getElementById('generationPerplexity').textContent = data.current_perplexity.toFixed(2);
+      if (data.bleu_score) document.getElementById('generationBleuScore').textContent = data.bleu_score.toFixed(4);
+      if (data.rouge1_fmeasure) document.getElementById('generationRouge1Fmeasure').textContent = data.rouge1_fmeasure.toFixed(4);
 
       if (data.output_text) document.getElementById('output').textContent = data.output_text;
-
-      if (!data.running) {
-        clearInterval(generationStatusInterval);
-        resetUI();
-      }
+      
+           
+       // Check if training is complete
+       if (!data.running) {
+          clearInterval(generationStatusInterval);
+          resetGenerationUI();
+        }
     });
 }
 
-function resetUI() {
+function resetGenerationUI() {
   const btn = document.getElementById('generateBtn');
   btn.disabled = false;
   btn.textContent = '✨ Start Generation';
+  //console.log('UI reset - button enabled'); // Debug log
 }
 </script>
 {% endblock %}

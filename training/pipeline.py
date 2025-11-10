@@ -177,31 +177,20 @@ def _run_baseline_training(config):
             # train
             update_training_status(progress=40, message="Training...")
             trainer.train()
-            # get final perplexity
-            perplexity = None
-            try:
-                if 'eval_loss' in trainer.state.log_history[-1]:
-                    eval_loss = trainer.state.log_history[-1]['eval_loss']
-                    perplexity = torch.exp(torch.tensor(eval_loss)).item() if eval_loss < 20 else None
-                else:
-                    perplexity = None
-            except:
-                perplexity = None
             # save + log + register
             _save_and_register(model, tokenizer, config, run.info.run_id)
 
             # evaluate
-            update_training_status(progress=90, message="Evaluating model...",current_perplexity=perplexity)
+            update_training_status(progress=90, message="Evaluating model...")
             evaluate_model(trainer, tokenizer, config)
-            mlflow.autolog()
             update_training_status(
                 progress=100,
                 message="✅ Training completed successfully!",
                 running=False,
                 end_time=datetime.now(),
-                experiment_name = config["experiment_name"],
-                current_perplexity=perplexity,
+                experiment_name = config["experiment_name"]
             )
+            mlflow.autolog()
             return True
 
     except Exception as e:

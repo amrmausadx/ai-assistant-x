@@ -58,7 +58,9 @@ generation_status = {
     "output_length": 0,
     "output_text": "",
     "experiment_name": None,
-    "config": {},
+    "current_perplexity": None,
+    "bleu_score": None,
+    "rouge1_fmeasure": None,
 }
 
 def reset_generation_status():
@@ -76,7 +78,10 @@ def reset_generation_status():
         "output_text": "",
         "experiment_name": None,
         "current_perplexity": None,
+        "bleu_score": None,
+        "rouge1_fmeasure": None,
     }
+
 def update_preprocessing_status(**kwargs):
     """Update preprocessing status"""
     global preprocessing_status
@@ -120,8 +125,6 @@ def get_generation_status():
     if status_copy['end_time']:
         status_copy['end_time'] = status_copy['end_time'].strftime('%Y-%m-%d %H:%M:%S')
     return status_copy
-
-
 
 def reset_preprocessing_status():
     """Reset preprocessing status to initial state"""
@@ -185,4 +188,4 @@ def get_gan_training_status():
 def update_gan_training_status(**kwargs):
     """Update GAN training status"""
     global gan_training_status
-    gan_training_status.update(kwargs)
+    gan_training_status.update({k:v for k,v in kwargs.items() if v is not None})
