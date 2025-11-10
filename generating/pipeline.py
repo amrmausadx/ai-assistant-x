@@ -35,7 +35,6 @@ def run_generation(config: dict):
     model_name = config.get("model_name", "gpt2")
     experiment_name = config.get("experiment_name", "generation")
     style = config.get("style","creative").lower().strip() 
-    print(f"Backend received style: '{style}'")  # Add debug log
 
     seed = config.get("seed",42)
 
