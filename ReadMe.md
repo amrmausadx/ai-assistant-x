@@ -16,7 +16,7 @@ python app.py
 
 #############################################
 git add .
-git commit -m "adjust style in generating"
+git commit -m "adjust read static directory"
 git push origin main
 
 ###########################################

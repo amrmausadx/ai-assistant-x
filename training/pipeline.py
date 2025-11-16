@@ -3,10 +3,12 @@ Main training pipeline with optional hardware optimization
 """
 import os
 from unittest import result
+from pathlib import Path
 import mlflow
 import torch
 import traceback
 from datetime import datetime
+
 from datasets import load_dataset, DatasetDict
 from transformers import (
     AutoTokenizer,
@@ -109,12 +111,21 @@ def _run_baseline_training(config):
 
             # dataset
             update_training_status(progress=10, message="Loading dataset...")
-            output_file = os.path.join("static", "datasets.csv")
+            # Base directory = your project root
+            BASE_DIR = Path(__file__).resolve().parent.parent
 
-            if not os.path.exists(output_file):
-                raise FileNotFoundError(f"{output_file} not found. Please run preprocessing first.")
+            # Build dataset path
+            dataset_path = BASE_DIR / "static" / "datasets.txt"
 
-            dataset = load_dataset("csv", data_files={"data": output_file})["data"]
+            # IMPORTANT: Convert to string for HuggingFace Datasets
+            dataset_path_str = str(dataset_path)
+
+            # Validate file exists
+            if not dataset_path.exists():
+                raise FileNotFoundError(f"{dataset_path} not found on server.")
+
+            # Load dataset safely
+            dataset = load_dataset("text", data_files={"data": dataset_path_str})["data"]
             dataset = dataset.shuffle(seed=config.get("seed", 42))
             split = dataset.train_test_split(test_size=config.get("test_size", 0.05), seed=config.get("seed", 42))
 
