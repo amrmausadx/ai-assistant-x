@@ -28,6 +28,10 @@ training_status = {
     'current_loss': None,
     'current_perplexity': None,
     'experiment_name':None,
+    'device_type': None,
+    'device_name': None,
+    'precision': 'fp32',
+    'mixed_precision': False,
 }
 
 gan_training_status = {
@@ -155,6 +159,10 @@ def reset_training_status():
         'total_epochs': 0,
         'current_loss': None,
         'experiment_name':None,
+        'device_type': None,
+        'device_name': None,
+        'precision': 'fp32',
+        'mixed_precision': False,
     }
 
 # GAN training status functions

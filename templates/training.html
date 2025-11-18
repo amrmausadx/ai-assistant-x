@@ -4,6 +4,37 @@
 
 {% block content %}
 <h1>🚀 Training Pre-trained Model</h1>
+<style>
+    .hardware-flag {
+        display: none;
+        margin-top: 12px;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .hardware-pill {
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+    .hardware-pill-gpu {
+        background: #c6f6d5;
+        color: #22543d;
+    }
+    .hardware-pill-cpu {
+        background: #bee3f8;
+        color: #2a4365;
+    }
+    .hardware-pill-neutral {
+        background: #edf2f7;
+        color: #2d3748;
+    }
+    .hardware-pill-warning {
+        background: #fefcbf;
+        color: #744210;
+    }
+</style>
 
 <div class="info-section">
     <h2>🎯 GPT-2 Fine-tuning</h2>
@@ -119,6 +150,12 @@
     </div>
     <div id="trainingProgressText">0%</div>
     <div id="trainingStatusMessage" class="status-message status-info">Initializing...</div>
+    <div id="hardwareFlag" class="hardware-flag">
+        <span id="deviceBadge" class="hardware-pill hardware-pill-neutral">-</span>
+        <span id="deviceNameText"></span>
+        <span id="precisionBadge" class="hardware-pill hardware-pill-neutral">FP32</span>
+        <span id="quantizeBadge" class="hardware-pill hardware-pill-warning" style="display: none;">4-bit</span>
+    </div>
     
     <div id="trainingMetrics" style="margin-top: 15px; display: none;">
         <h4>Training Metrics</h4>
@@ -210,6 +247,11 @@
                 const endTime = document.getElementById('trainingEndTime');
                 const experiment_name = document.getElementById('trainingExperiment');
                 const current_perplexity = document.getElementById('currentPerplexity');
+                const hardwareFlag = document.getElementById('hardwareFlag');
+                const deviceBadge = document.getElementById('deviceBadge');
+                const deviceNameText = document.getElementById('deviceNameText');
+                const precisionBadge = document.getElementById('precisionBadge');
+                const quantizeBadge = document.getElementById('quantizeBadge');
                 
                 // Update progress
                 progressFill.style.width = data.progress + '%';
@@ -232,6 +274,31 @@
                 document.getElementById('totalEpochs').textContent = data.total_epochs || '-';
                 document.getElementById('currentLoss').textContent = data.current_loss ? data.current_loss.toFixed(4) : '-';
                 document.getElementById('currentPerplexity').textContent = data.current_perplexity ? data.current_perplexity.toFixed(4) : '-';
+
+                if (hardwareFlag && (typeof data.device_type !== 'undefined' || data.precision || typeof data.quantize !== 'undefined')) {
+                    hardwareFlag.style.display = 'flex';
+                    if (deviceBadge) {
+                        let deviceLabel = 'DETECTING';
+                        let pillClass = 'hardware-pill-neutral';
+                        if (data.device_type) {
+                            deviceLabel = data.device_type.toUpperCase();
+                            pillClass = data.device_type === 'cuda' ? 'hardware-pill-gpu' : 'hardware-pill-cpu';
+                        }
+                        deviceBadge.textContent = deviceLabel;
+                        deviceBadge.className = 'hardware-pill ' + pillClass;
+                    }
+                    if (deviceNameText) {
+                        deviceNameText.textContent = data.device_name ? `(${data.device_name})` : '';
+                    }
+                    if (precisionBadge) {
+                        const precision = (data.precision || 'fp32').toUpperCase();
+                        precisionBadge.textContent = precision;
+                        precisionBadge.className = 'hardware-pill hardware-pill-neutral';
+                    }
+                    if (quantizeBadge) {
+                        quantizeBadge.style.display = data.quantize ? 'inline-block' : 'none';
+                    }
+                }
                 
                 // Check if training is complete
                 if (!data.running) {

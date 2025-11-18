@@ -1,3 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cu121
 Flask
 mlflow
 pandas
@@ -6,8 +7,8 @@ nltk
 spacy
 beautifulsoup4
 datasets
-transformers==4.51.2
-torch
+transformers==4.52.1
+torch==2.4.1+cu121
 evaluate
 rouge_score
 Jinja2
@@ -15,8 +16,9 @@ Werkzeug
 click
 itsdangerous
 MarkupSafe
-torchvision
+torchvision==0.19.1+cu121
 scikit-learn==1.6.1
 accelerate>=0.26.0
-torchaudio 
+torchaudio==2.4.1+cu121
 bitsandbytes==0.43.3
+peft>=0.11.0

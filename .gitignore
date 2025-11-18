@@ -3,3 +3,4 @@ gpt2_finetuned/
 mlruns/
 *__pycache__/
 *.pyc
+.venv/

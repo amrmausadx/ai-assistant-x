@@ -18,6 +18,7 @@ from transformers import (
     TrainingArguments,
     BitsAndBytesConfig,
 )
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 from .core import MLflowCallback, evaluate_model, prepare_tokenization_function
 from utils.status import update_training_status
@@ -42,10 +43,8 @@ def run_training_pipeline(config, optimize=False):
         return False
 
     if optimize:
-        return None
-        #return _run_optimized_training(config)
-    else:
-        return _run_baseline_training(config)
+        return _run_optimized_training(config)
+    return _run_baseline_training(config)
 
 
 # -------------------------------
@@ -64,17 +63,58 @@ def _run_baseline_training(config):
         current_perplexity=None,
         experiment_name = config["experiment_name"],
         quantize=config.get("quantize", False),
+        device_type=None,
+        device_name=None,
+        precision="fp32",
+        mixed_precision=False,
     )
 
     try:
         mlflow.set_experiment(config["experiment_name"])
         
-        device = None
         try:
             device = "cuda" if torch.cuda.is_available() else "cpu"
-        except:
+        except Exception:
             device = "cpu"
-        use_quantize = config.get("quantize", False) 
+        use_cuda = device == "cuda"
+        bf16_supported = (
+            use_cuda and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
+        )
+        use_bf16 = bool(config.get("bf16", False) and bf16_supported)
+        torch_dtype = torch.bfloat16 if use_bf16 else (torch.float16 if use_cuda else torch.float32)
+        use_quantize = config.get("quantize", False)
+        if use_quantize:
+            config.setdefault("lora_r", 16)
+            config.setdefault("lora_alpha", 32)
+            config.setdefault("lora_dropout", 0.05)
+            config.setdefault("lora_bias", "none")
+            config.setdefault("lora_target_modules", ["c_attn", "c_proj", "c_fc"])
+        precision_label = "bf16" if use_bf16 else ("fp16" if config.get("fp16", False) else "fp32")
+        cuda_name = None
+        if use_cuda:
+            try:
+                cuda_name = torch.cuda.get_device_name(torch.cuda.current_device())
+            except Exception:
+                cuda_name = None
+        update_training_status(
+            device_type="cuda" if use_cuda else "cpu",
+            device_name=cuda_name,
+            precision=precision_label,
+            mixed_precision=precision_label != "fp32",
+        )
+        if use_cuda and "fp16" not in config and not use_bf16:
+            config["fp16"] = True
+        if "dataloader_pin_memory" not in config:
+            config["dataloader_pin_memory"] = use_cuda
+        if "gradient_checkpointing" not in config and use_cuda:
+            config["gradient_checkpointing"] = True
+        dataloader_workers = config.get("dataloader_num_workers", 0)
+        prefetch_factor = config.get("dataloader_prefetch_factor")
+        if prefetch_factor is None and use_cuda and dataloader_workers and dataloader_workers > 0:
+            prefetch_factor = 2
+        eval_accumulation_steps = config.get("eval_accumulation_steps")
+        if eval_accumulation_steps is None and use_cuda:
+            eval_accumulation_steps = 1
 
         with mlflow.start_run(run_name="gpt2_finetuning") as run:
             update_training_status(run_id=run.info.run_id)
@@ -94,16 +134,44 @@ def _run_baseline_training(config):
                 bnb_config = BitsAndBytesConfig(
                         load_in_4bit=True,
                         bnb_4bit_use_double_quant=True,
-                        bnb_4bit_compute_dtype=torch.float16
+                        bnb_4bit_compute_dtype=torch_dtype,
+                        bnb_4bit_quant_type="nf4",
                     )
+                quantized_kwargs = {
+                    "quantization_config": bnb_config,
+                    "torch_dtype": torch_dtype,
+                }
+                if use_cuda:
+                    quantized_kwargs["device_map"] = "auto"
                 model = AutoModelForCausalLM.from_pretrained(
-                        config["model_name"],
-                        device_map="auto",
-                        quantization_config=bnb_config,
-                    )
+                    config["model_name"],
+                    **quantized_kwargs,
+                )
+                model = prepare_model_for_kbit_training(model)
+                target_modules = config.get("lora_target_modules", [])
+                if isinstance(target_modules, str):
+                    target_modules = [m.strip() for m in target_modules.split(",") if m.strip()]
+                if not target_modules:
+                    target_modules = ["c_attn", "c_proj", "c_fc"]
+                lora_config = LoraConfig(
+                    r=config.get("lora_r", 16),
+                    lora_alpha=config.get("lora_alpha", 32),
+                    lora_dropout=config.get("lora_dropout", 0.05),
+                    bias=config.get("lora_bias", "none"),
+                    task_type="CAUSAL_LM",
+                    target_modules=target_modules,
+                )
+                model = get_peft_model(model, lora_config)
                 
             else:
-                model = AutoModelForCausalLM.from_pretrained(config["model_name"]).to(device)
+                base_kwargs = {"torch_dtype": torch_dtype}
+                if use_cuda:
+                    base_kwargs["device_map"] = "auto"
+                model = AutoModelForCausalLM.from_pretrained(config["model_name"], **base_kwargs)
+                if not use_cuda:
+                    model = model.to(device)
+            if config.get("gradient_checkpointing"):
+                model.gradient_checkpointing_enable()
             
             # Ensure tokenizer and model embeddings match
             model.resize_token_embeddings(len(tokenizer))
@@ -149,7 +217,7 @@ def _run_baseline_training(config):
 
             # trainer
             update_training_status(progress=30, message="Setting up trainer...")
-            training_args = TrainingArguments(
+            training_kwargs = dict(
                 output_dir=config["output_dir"],
                 overwrite_output_dir=True,
                 num_train_epochs=config["num_train_epochs"],
@@ -169,12 +237,20 @@ def _run_baseline_training(config):
                     100, dataset_dict["train"].num_rows // (config["train_batch_size"] * 4)
                 ),
                 fp16=config.get("fp16", False),
+                bf16=use_bf16,
                 dataloader_num_workers=config.get("dataloader_num_workers", 0),
+                dataloader_pin_memory=config.get("dataloader_pin_memory", False),
+                gradient_checkpointing=config.get("gradient_checkpointing", False),
                 push_to_hub=False,
                 save_total_limit=2,
                 report_to="none",
                 remove_unused_columns=False,
             )
+            if prefetch_factor is not None:
+                training_kwargs["dataloader_prefetch_factor"] = prefetch_factor
+            if eval_accumulation_steps is not None:
+                training_kwargs["eval_accumulation_steps"] = eval_accumulation_steps
+            training_args = TrainingArguments(**training_kwargs)
 
             trainer = Trainer(
                 model=model,
@@ -221,7 +297,12 @@ def _run_optimized_training(config):
         current_epoch=0,
         total_epochs=config.get("num_train_epochs", 2),
         current_loss=None,
-        experiment_name = config["experiment_name"]
+        experiment_name = config["experiment_name"],
+        quantize=config.get("quantize", False),
+        device_type=None,
+        device_name=None,
+        precision="fp32",
+        mixed_precision=False,
     )
 
     try:
@@ -232,6 +313,29 @@ def _run_optimized_training(config):
         #if use_optimization or hardware_info["ram_gb"] < 8:
        #     optimal_config = get_optimal_config(hardware_info)
         #    config.update(optimal_config)
+
+        try:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception:
+            device = "cpu"
+        use_cuda = device == "cuda"
+        bf16_supported = (
+            use_cuda and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
+        )
+        use_bf16 = bool(config.get("bf16", False) and bf16_supported)
+        precision_label = "bf16" if use_bf16 else ("fp16" if config.get("fp16", False) else "fp32")
+        cuda_name = None
+        if use_cuda:
+            try:
+                cuda_name = torch.cuda.get_device_name(torch.cuda.current_device())
+            except Exception:
+                cuda_name = None
+        update_training_status(
+            device_type="cuda" if use_cuda else "cpu",
+            device_name=cuda_name,
+            precision=precision_label,
+            mixed_precision=precision_label != "fp32",
+        )
 
         mlflow.set_experiment(config["experiment_name"])
 
