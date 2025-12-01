@@ -27,3 +27,4 @@ Live website: http://196.218.189.179:5000/
 Github Repositry: https://github.com/amrmausadx/ai-assistant-x
 Documentation: https://docs.google.com/document/d/1nhBDC9ghk7ZSdY_G5eUqHbKiEZ1oogiCxg994rBTznc/edit?usp=sharing
 Presentation: https://www.canva.com/design/DAG6PWGAW30/P0FaBERt-VJD2NryMQ6EyA/edit
+Team members: https://onedrive.live.com/:x:/g/personal/26B83CA047D63BE2/IQCKOdQ5s8eYTKQp0HAZ1vfgASlca8Dsfm2REApJpKN3EWU?resid=26B83CA047D63BE2!s39d4398ac7b34c98a429d07019d6f7e0&ithint=file%2Cxlsx&e=S0o3Qq&migratedtospo=true&redeem=aHR0cHM6Ly8xZHJ2Lm1zL3gvYy8yNkI4M0NBMDQ3RDYzQkUyL0lRQ0tPZFE1czhlWVRLUXAwSEFaMXZmZ0FTbGNhOERzZm0yUkVBcEpwS04zRVdVP2U9UzBvM1Fx
