@@ -23,13 +23,10 @@ pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 mlflow ui
 python app.py
-
 #############################################
-
 git add .
 git commit -m "adjust read static directory"
 git push origin main
-
 ###########################################
 docker build -t ai-assistant .
 ##############################################
