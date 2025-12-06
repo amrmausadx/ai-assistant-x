@@ -102,8 +102,9 @@ def _run_baseline_training(config):
             precision=precision_label,
             mixed_precision=precision_label != "fp32",
         )
-        if use_cuda and "fp16" not in config and not use_bf16:
-            config["fp16"] = True
+        # Only enable FP16 if explicitly requested by user
+        if "fp16" not in config:
+            config["fp16"] = False  # Default to False, respect user choice
         if "dataloader_pin_memory" not in config:
             config["dataloader_pin_memory"] = use_cuda
         if "gradient_checkpointing" not in config and use_cuda:
@@ -148,11 +149,31 @@ def _run_baseline_training(config):
                     **quantized_kwargs,
                 )
                 model = prepare_model_for_kbit_training(model)
+                
+                # Auto-detect target modules for LoRA
                 target_modules = config.get("lora_target_modules", [])
                 if isinstance(target_modules, str):
                     target_modules = [m.strip() for m in target_modules.split(",") if m.strip()]
+                
                 if not target_modules:
-                    target_modules = ["c_attn", "c_proj", "c_fc"]
+                    # Find all linear layer names in the model
+                    import re
+                    linear_layers = set()
+                    for name, module in model.named_modules():
+                        if isinstance(module, torch.nn.Linear):
+                            # Extract the layer type name (e.g., 'q_proj', 'v_proj', 'c_attn')
+                            layer_name = name.split('.')[-1]
+                            linear_layers.add(layer_name)
+                    
+                    # Use common patterns if found, otherwise use all linear layers
+                    common_patterns = ['q_proj', 'v_proj', 'k_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj', 'c_attn', 'c_proj', 'c_fc']
+                    target_modules = [m for m in common_patterns if m in linear_layers]
+                    
+                    if not target_modules:
+                        target_modules = list(linear_layers)[:4]  # Use first 4 linear layers
+                    
+                    print(f"Auto-detected LoRA target modules: {target_modules}")
+                
                 lora_config = LoraConfig(
                     r=config.get("lora_r", 16),
                     lora_alpha=config.get("lora_alpha", 32),
@@ -237,6 +258,7 @@ def _run_baseline_training(config):
                     100, dataset_dict["train"].num_rows // (config["train_batch_size"] * 4)
                 ),
                 fp16=config.get("fp16", False),
+                fp16_full_eval=False,  # Explicitly disable FP16 for evaluation
                 bf16=use_bf16,
                 dataloader_num_workers=config.get("dataloader_num_workers", 0),
                 dataloader_pin_memory=config.get("dataloader_pin_memory", False),

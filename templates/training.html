@@ -12,24 +12,29 @@
         align-items: center;
         flex-wrap: wrap;
     }
+
     .hardware-pill {
         padding: 4px 10px;
         border-radius: 999px;
         font-size: 0.85rem;
         font-weight: 600;
     }
+
     .hardware-pill-gpu {
         background: #c6f6d5;
         color: #22543d;
     }
+
     .hardware-pill-cpu {
         background: #bee3f8;
         color: #2a4365;
     }
+
     .hardware-pill-neutral {
         background: #edf2f7;
         color: #2d3748;
     }
+
     .hardware-pill-warning {
         background: #fefcbf;
         color: #744210;
@@ -38,7 +43,8 @@
 
 <div class="info-section">
     <h2>🎯 GPT-2 Fine-tuning</h2>
-    <p>Fine-tune GPT-2 models on your preprocessed creative writing data. Configure training parameters below and monitor progress in real-time.</p>
+    <p>Fine-tune GPT-2 models on your preprocessed creative writing data. Configure training parameters below and
+        monitor progress in real-time.</p>
 </div>
 
 {% if not training_available %}
@@ -52,13 +58,15 @@
 <div class="grid">
     <div class="card">
         <h3>📁 Dataset Requirements</h3>
-        <p>Make sure you have completed the preprocessing step first. The training expects a CSV file with a 'text' column.</p>
+        <p>Make sure you have completed the preprocessing step first. The training expects a CSV file with a 'text'
+            column.</p>
         <p><strong>Default file:</strong> /static/datasets.csv</p>
     </div>
-    
+
     <div class="card">
         <h3>🔧 Model Configuration</h3>
-        <p>Adjust hyperparameters based on your hardware and requirements. Smaller batch sizes work better with limited GPU memory.</p>
+        <p>Adjust hyperparameters based on your hardware and requirements. Smaller batch sizes work better with limited
+            GPU memory.</p>
     </div>
 </div>
 
@@ -68,26 +76,30 @@
             <label for="input_csv">Dataset CSV File:</label>
             <input type="text" id="input_csv" name="input_csv" readonly value="/static/datasets.csv" required>
         </div>
-        
+
         <div class="form-group">
             <label for="model_name">Base Model:</label>
             <select id="model_name" name="model_name">
-                <option value="gpt2">GPT-2 (117M)</option>
-                <option value="gpt2-medium">GPT-2 Medium (345M)</option>
-                <option value="gpt2-large">GPT-2 Large (774M)</option>
-                <option value="distilgpt2">DistilGPT-2 (82M)</option>
-                <option value="facebook/bart-base">BART Base (139M)</option>
-                <option value="facebook/bart-large">BART Large (406M)</option>
-                <option value="Qwen/Qwen2.5-1.5B-Instruct">Qwen 2.5B (~1.8 GB)</option>
-                <option value="mistralai/Mixtral-8x7B-v0.1">Mixtral (8x7B)</option>
-            </select> 
-            
+                <option value="gpt2" style="color: #047857; font-weight: 600;">✅ GPT-2 (117M)</option>
+                <option value="gpt2-medium" style="color: #047857; font-weight: 600;">✅ GPT-2 Medium (345M)</option>
+                <option value="distilgpt2" style="color: #047857; font-weight: 600;">✅ DistilGPT-2 (82M)</option>
+                <option value="facebook/bart-base" style="color: #047857; font-weight: 600;">✅ BART Base (139M)</option>
+                <option value="Qwen/Qwen2.5-1.5B-Instruct" style="color: #047857; font-weight: 600;">✅ Qwen 2.5B
+                    (~1.8 GB)</option>
+                <option value="gpt2-large" style="color: #047857; font-weight: 600;">⚠️ GPT-2 Large (774M)</option>
+                <option value="facebook/bart-large" style="color: #047857; font-weight: 600;">⚠️ BART Large (406M)
+                </option>
+                <option value="mistralai/Mixtral-8x7B-v0.1" style="color: #dc2626; font-weight: bold;">🚫 Mixtral (8x7B)
+                    - Needs 80GB+ VRAM</option>
+            </select>
+
         </div>
     </div>
     <div class="form-row">
         <div class="form-group">
             <input type="checkbox" id="quantize" name="quantize" value="true" style="width: auto; margin-right: 10px;">
-            <label for="quantize" style="display: inline;">Enable 4-bit quantization (must be cuda available)</label>
+            <label for="quantize" style="display: inline;">Enable 4-bit quantization (must be cuda
+                available)</label>
         </div>
     </div>
     <div class="form-row">
@@ -100,19 +112,19 @@
             <input type="text" id="output_dir" name="output_dir" value="./gpt2_finetuned" readonly>
         </div>
     </div>
-    
+
     <div class="form-row">
         <div class="form-group">
             <label for="num_train_epochs">Training Epochs:</label>
             <input type="number" id="num_train_epochs" name="num_train_epochs" value="5" min="1" max="100">
         </div>
-        
+
         <div class="form-group">
             <label for="learning_rate">Learning Rate:</label>
             <input type="number" id="learning_rate" name="learning_rate" value="3e-5" step="1e-6">
         </div>
     </div>
-    
+
     <div class="form-row">
         <div class="form-group">
             <label for="train_batch_size">Training Batch Size:</label>
@@ -123,22 +135,24 @@
             <input type="number" id="test_size" name="test_size" value="0.1" min="0.1" max="0.4" step="0.1">
         </div>
     </div>
-    
+
     <div class="form-row">
         <div class="form-group">
             <label for="block_size">Block Size (tokens):</label>
             <input type="number" id="block_size" name="block_size" value="512" min="64" max="1024">
         </div>
-        
-        
+
+
     </div>
-    
+
     <div class="form-group">
         <input type="checkbox" id="fp16" name="fp16" style="width: auto; margin-right: 10px;">
-        <label for="fp16" style="display: inline;">Enable Mixed Precision (FP16) - Faster training, requires compatible GPU</label>
+        <label for="fp16" style="display: inline;">Enable Mixed Precision (FP16) - Faster training, requires
+            compatible
+            GPU</label>
     </div>
-    
-    
+
+
     <button type="submit" id="startTrainingBtn" class="btn" {{ 'disabled' if not training_available else '' }}>
         🚀 Start Training
     </button>
@@ -156,7 +170,7 @@
         <span id="precisionBadge" class="hardware-pill hardware-pill-neutral">FP32</span>
         <span id="quantizeBadge" class="hardware-pill hardware-pill-warning" style="display: none;">4-bit</span>
     </div>
-    
+
     <div id="trainingMetrics" style="margin-top: 15px; display: none;">
         <h4>Training Metrics</h4>
         <p><strong>Current Epoch:</strong> <span id="currentEpoch">-</span> / <span id="totalEpochs">-</span></p>
@@ -165,7 +179,8 @@
     </div>
 </div>
 
-<div id="trainingMlflowInfo" style="background: #e6fffa; padding: 15px; border-radius: 8px; margin-top: 20px; border: 1px solid #81e6d9; display: none;">
+<div id="trainingMlflowInfo"
+    style="background: #e6fffa; padding: 15px; border-radius: 8px; margin-top: 20px; border: 1px solid #81e6d9; display: none;">
     <h3>🔬 MLflow Training Tracking</h3>
     <p><strong>Experiment:</strong> <span id="trainingExperiment">-</span></p>
     <p><strong>Run ID:</strong> <span id="trainingRunId">-</span></p>
@@ -177,10 +192,21 @@
 {% block extra_scripts %}
 <script>
     let trainingStatusInterval;
-    
-    document.getElementById('trainingForm').addEventListener('submit', function(e) {
+
+    document.getElementById('trainingForm').addEventListener('submit', function (e) {
         e.preventDefault();
         startTraining();
+    });
+    // Auto-sync quantization and FP16 checkboxes
+    const quantizeCheckbox = document.getElementById('quantize');
+    const fp16Checkbox = document.getElementById('fp16');
+
+    quantizeCheckbox.addEventListener('change', function () {
+        fp16Checkbox.checked = this.checked;
+    });
+
+    fp16Checkbox.addEventListener('change', function () {
+        quantizeCheckbox.checked = this.checked;
     });
 
     function startTraining() {
@@ -188,20 +214,20 @@
         const progressContainer = document.getElementById('trainingProgressContainer');
         const mlflowInfo = document.getElementById('trainingMlflowInfo');
         const metricsDiv = document.getElementById('trainingMetrics');
-        
+
         btn.disabled = true;
         btn.textContent = '⏳ Training...';
         progressContainer.style.display = 'block';
         mlflowInfo.style.display = 'block';
         metricsDiv.style.display = 'block';
-        
+
         const formData = new FormData(document.getElementById('trainingForm'));
         const config = {};
-        
+
         for (let [key, value] of formData.entries()) {
             if (key === 'fp16' || key === 'quantize') {
                 config[key] = true;
-            } else if (['num_train_epochs', 'train_batch_size','block_size'].includes(key)) {
+            } else if (['num_train_epochs', 'train_batch_size', 'block_size'].includes(key)) {
                 config[key] = parseInt(value);
             } else if (['learning_rate', 'test_size', 'current_perplexity'].includes(key)) {
                 config[key] = parseFloat(value);
@@ -209,32 +235,32 @@
                 config[key] = value;
             }
         }
-        
+
         // Add checkbox if not checked
         if (!config.fp16) {
             config.fp16 = false;
         }
-        
+
         fetch('/api/training/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'started') {
-                trainingStatusInterval = setInterval(checkTrainingStatus, 2000);
-            } else {
-                alert('Failed to start training: ' + data.message);
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    trainingStatusInterval = setInterval(checkTrainingStatus, 2000);
+                } else {
+                    alert('Failed to start training: ' + data.message);
+                    resetTrainingUI();
+                }
+            })
+            .catch(error => {
+                alert('Error: ' + error.message);
                 resetTrainingUI();
-            }
-        })
-        .catch(error => {
-            alert('Error: ' + error.message);
-            resetTrainingUI();
-        });
+            });
     }
-   
+
     function checkTrainingStatus() {
         fetch('/api/training/status')
             .then(response => response.json())
@@ -252,23 +278,23 @@
                 const deviceNameText = document.getElementById('deviceNameText');
                 const precisionBadge = document.getElementById('precisionBadge');
                 const quantizeBadge = document.getElementById('quantizeBadge');
-                
+
                 // Update progress
                 progressFill.style.width = data.progress + '%';
                 progressText.textContent = data.progress + '%';
-                
+
                 // Update status message
                 statusMessage.textContent = data.message;
-                statusMessage.className = 'status-message ' + 
-                    (data.error ? 'status-error' : 
-                     data.progress === 100 ? 'status-success' : 'status-info');
-                
+                statusMessage.className = 'status-message ' +
+                    (data.error ? 'status-error' :
+                        data.progress === 100 ? 'status-success' : 'status-info');
+
                 // Update MLflow info
                 if (data.experiment_name) experiment_name.textContent = data.experiment_name;
                 if (data.run_id) runId.textContent = data.run_id;
                 if (data.start_time) startTime.textContent = data.start_time;
                 if (data.end_time) endTime.textContent = data.end_time;
-                
+
                 // Update training metrics
                 document.getElementById('currentEpoch').textContent = data.current_epoch || '-';
                 document.getElementById('totalEpochs').textContent = data.total_epochs || '-';
@@ -299,7 +325,7 @@
                         quantizeBadge.style.display = data.quantize ? 'inline-block' : 'none';
                     }
                 }
-                
+
                 // Check if training is complete
                 if (!data.running) {
                     clearInterval(trainingStatusInterval);
@@ -307,19 +333,19 @@
                 }
             });
     }
-    
+
     function resetTrainingUI() {
         const btn = document.getElementById('startTrainingBtn');
-        
+
         {% if training_available %}
-            btn.disabled = false;
+        btn.disabled = false;
         {% else %}
-            btn.disabled = true;
+        btn.disabled = true;
         {% endif %}
-        
+
         btn.textContent = '🚀 Start Training';
     }
-    
+
 
 </script>
 {% endblock %}

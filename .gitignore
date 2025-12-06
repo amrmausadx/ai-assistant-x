@@ -1,7 +1,71 @@
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ML/Training outputs
 gpt2_finetuned/
 mlruns/
-*__pycache__/
-*.pyc
-.venv/
-static/
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.pkl
+*.joblib
+
+# Data files
+*.csv
+*.parquet
+*.feather
+!requirements.txt
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.local
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# MLflow
+mlartifacts/
+
+# Model checkpoints
+checkpoints/
+checkpoint-*/
+
+# Temporary files
+*.tmp
+*.bak
+.cache/
+
+# OS
+Thumbs.db
+
+# Static generated files
+static/datasets.txt
+static/*.csv

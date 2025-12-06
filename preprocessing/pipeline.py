@@ -7,7 +7,7 @@ import mlflow
 import pandas as pd
 from datetime import datetime
 
-from seaborn import load_dataset
+#from seaborn import load_dataset
 from .core import (
     load_chosen_dataset,
     load_gutenberg, 
