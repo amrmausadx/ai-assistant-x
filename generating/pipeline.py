@@ -143,12 +143,10 @@ def handle_error(e,config=None):
         mlflow.end_run(status="FAILED")
 
 def _generate_from_mlflow_model(prompt, max_length, temperature, experiment_name):
-    """Generate from MLflow registered model"""
     update_generation_status(progress=20, message="Loading fine-tuned model from MLflow...")
-    
+
     client = mlflow.tracking.MlflowClient()
-    
-    # Try to get production model first, fall back to latest
+
     try:
         model_versions = client.get_latest_versions(
             experiment_name + "-model",
@@ -159,42 +157,61 @@ def _generate_from_mlflow_model(prompt, max_length, temperature, experiment_name
                 experiment_name + "-model",
                 stages=["None"]
             )
-        
+
         latest_version = model_versions[-1].version
-        logged_model = f"models:/{experiment_name}-model/{latest_version}"
-        
+        logged_model_uri = f"models:/{experiment_name}-model/{latest_version}"
+
         mlflow.log_param("model_version", latest_version)
-        
+
     except Exception as e:
-        handle_error(e,{"experiment_name": experiment_name})
+        handle_error(e, {"experiment_name": experiment_name})
         return False
-    
+
     update_generation_status(progress=40, message="Generating text...")
-    
-    # Load the pipeline
-    pipeline = mlflow.transformers.load_model(logged_model)
-    
-    # Generate with enhanced parameters
+
+    #Load underlying HF artifacts
+    local_path = mlflow.artifacts.download_artifacts(logged_model_uri)
+
+    #from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(local_path)
+    model = AutoModelForCausalLM.from_pretrained(local_path)
+
+    # GPT-2 pad token fix
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    model.config.pad_token_id = tokenizer.pad_token_id
+    model.config.use_cache = False  # Prevent NaN logits
+
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True)
+
+    # Safe length handling
+    max_length = min(max_length, 1024)
+    min_length = min(max_length - 1, max(5, inputs.input_ids.shape[1] + 5))
+
+    # Safe temperature
+    temperature = float(max(0.1, min(temperature, 1.2)))
+
     start_time = time.time()
-    result = pipeline(
-        prompt,
+
+    output_ids = model.generate(
+        **inputs,
         max_length=max_length,
-        min_length=max(20, len(prompt.split()) + 10),  # Ensure minimum generation
+        min_length=min_length,
         temperature=temperature,
         do_sample=True,
         top_k=50,
-        top_p=0.92,  # Slightly lower for more coherence
-        repetition_penalty=1.3,  # Stronger penalty for repetition
+        top_p=0.92,
+        repetition_penalty=1.3,
         no_repeat_ngram_size=3,
         num_return_sequences=1,
-        pad_token_id=pipeline.tokenizer.pad_token_id,
-        eos_token_id=pipeline.tokenizer.eos_token_id
     )
+
     duration = time.time() - start_time
-    
-    text = result[0]['generated_text']
     mlflow.log_metric("generation_time", duration)
-    
+
+    text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     return text
 
 
