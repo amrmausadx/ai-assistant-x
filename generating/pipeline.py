@@ -80,7 +80,7 @@ def run_generation(config: dict):
             if model_name == "./gpt2_finetuned/":
                 text = _generate_from_mlflow_model(
                     enhanced_prompt, max_length, temperature, 
-                    experiment_name
+                    output_dir=model_name
                 )
             else:
                 text = _generate_from_pretrained(
@@ -142,57 +142,25 @@ def handle_error(e,config=None):
     if config and "experiment_name" in config:
         mlflow.end_run(status="FAILED")
 
-def _generate_from_mlflow_model(prompt, max_length, temperature, experiment_name):
-    update_generation_status(progress=20, message="Loading fine-tuned model from MLflow...")
-
-    client = mlflow.tracking.MlflowClient()
-
-    try:
-        model_versions = client.get_latest_versions(
-            experiment_name + "-model",
-            stages=["Production"]
-        )
-        if not model_versions:
-            model_versions = client.get_latest_versions(
-                experiment_name + "-model",
-                stages=["None"]
-            )
-
-        latest_version = model_versions[-1].version
-        logged_model_uri = f"models:/{experiment_name}-model/{latest_version}"
-
-        mlflow.log_param("model_version", latest_version)
-
-    except Exception as e:
-        handle_error(e, {"experiment_name": experiment_name})
-        return False
-
-    update_generation_status(progress=40, message="Generating text...")
-
-    #Load underlying HF artifacts
-    local_path = mlflow.artifacts.download_artifacts(logged_model_uri)
-
-    #from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    tokenizer = AutoTokenizer.from_pretrained(local_path)
-    model = AutoModelForCausalLM.from_pretrained(local_path)
-
-    # GPT-2 pad token fix
+def _generate_from_mlflow_model(prompt, max_length, temperature, output_dir):
+    
+    update_generation_status(progress=20, message="Loading Fine-Tuned Model from MLflow...")
+    # Load directly from output_dir
+    tokenizer = AutoTokenizer.from_pretrained(output_dir)
+    model = AutoModelForCausalLM.from_pretrained(output_dir)
+    # Fix pad token for GPT-2
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+        model.config.pad_token_id = tokenizer.eos_token_id
 
-    model.config.pad_token_id = tokenizer.pad_token_id
-    model.config.use_cache = False  # Prevent NaN logits
-
+    model.config.use_cache = False  # Stability fix
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True)
-
-    # Safe length handling
+    # Safe params
     max_length = min(max_length, 1024)
-    min_length = min(max_length - 1, max(5, inputs.input_ids.shape[1] + 5))
-
-    # Safe temperature
+    min_length = max(5, inputs.input_ids.shape[1] + 5)
     temperature = float(max(0.1, min(temperature, 1.2)))
-
+    update_generation_status(progress=40, message="Generating text...")
+    
     start_time = time.time()
 
     output_ids = model.generate(
