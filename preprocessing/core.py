@@ -87,39 +87,66 @@ def load_poetry(config):
         print(f"Failed to load poetry dataset: {e}")
         return e,1
 
-
 def load_chosen_dataset(dataset_name, config):
     """Dynamically load a Hugging Face dataset and extract text intelligently."""
     try:
-        dataset = load_dataset(dataset_name,split="train")
-        #read one of these columns if exists (text, story, content, article, body,poem)
-        text_columns = ["text", "story", "content", "article", "body", "poem","Poem","Text","Story","Content","Article","Body"]
+        # ---- Load dataset correctly ----
+        dataset = load_dataset(dataset_name)
+
+        # Ensure train split
+        if "train" in dataset:
+            dataset = dataset["train"]
+            print(f"Loaded dataset '{dataset_name}' with 'train' split.")
+        else:
+            raise ValueError("No train split found.")
+
+        print(f"Dataset '{dataset_name}' columns: {dataset.column_names}")
+
+        # ---- Select text column properly ----
+        text_columns = [
+            "text", "story", "content", "article", "body",
+            "poem", "Poem", "Text", "Story", "Content", "Article", "Body"
+        ]
+
         chosen_column = None
-        for col in dataset["train"].column_names:
+        for col in text_columns:
+            if col in dataset.column_names:
                 chosen_column = col
                 break
+
         if chosen_column is None:
             raise ValueError(f"No suitable text column found in dataset '{dataset_name}'")
-        #clean text until limit load
-        texts = [clean_text(x[chosen_column].strip()) for i,x in enumerate(dataset["train"]) if x[chosen_column].strip() and i<int(config["limit_load"])]
+
+        print(f"Using column '{chosen_column}'")
+
+        # ---- Load & clean text ----
+        limit = int(config["limit_load"])
+        texts = [
+            clean_text(x[chosen_column].strip())
+            for i, x in enumerate(dataset)
+            if x[chosen_column] and i < limit
+        ]
+
         return texts, len(texts)
-        
+
     except Exception as e:
         print(f"❌ Failed to load chosen dataset '{dataset_name}': {e}")
         return e, 0
+
 
 def create_preprocessing_report():
     """Generate preprocessing report"""
     report = f"""
 Data Preprocessing Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 -------------------------
-1. Removed HTML tags using BeautifulSoup.
-2. Removed headers and footers using regex.
-3. Removed non-alphabetic characters except basic punctuation.
-4. Normalized whitespace.
-5. Tokenized sentences using {'SpaCy' if get_spacy_model() else 'Regex fallback'}.
-6. Loaded datasets
-8. Saved the cleaned dataset as CSV.
+    # Remove HTML tags
+    # Remove URLs
+    # Remove Gutenberg headers/footers
+    # Remove non-alphanumeric except basic punctuation
+    # Remove extra newlines and tabs
+    # Normalize multiple punctuation
+    # Normalize multiple spaces
+    # Optional: lowercase normalization
 Processing completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
     return report
