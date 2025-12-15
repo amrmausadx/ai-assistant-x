@@ -100,7 +100,7 @@ def run_preprocessing_pipeline(config,opt=None):
             
             update_preprocessing_status(
                 progress=100,
-                message=f'✅ Preprocessing completed! Dataset size: {len(df)} samples of {Gun_len+book_len+poetry_len+count_other_datasets} total loaded texts.',
+                message=f'✅ Preprocessing completed! Dataset size: {len(df)} samples',
                 running=False,
                 end_time=datetime.now(),
                 experiment_name = config["experiment_name"],
