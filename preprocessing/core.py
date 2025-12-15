@@ -91,12 +91,11 @@ def load_poetry(config):
 def load_chosen_dataset(dataset_name, config):
     """Dynamically load a Hugging Face dataset and extract text intelligently."""
     try:
-        dataset = load_dataset(dataset_name)
+        dataset = load_dataset(dataset_name,split="train")
         #read one of these columns if exists (text, story, content, article, body,poem)
-        text_columns = ["text", "story", "content", "article", "body", "poem"]
+        text_columns = ["text", "story", "content", "article", "body", "poem","Poem","Text","Story","Content","Article","Body"]
         chosen_column = None
-        for col in text_columns:
-            if col in dataset['train'].column_names:
+        for col in dataset["train"].column_names:
                 chosen_column = col
                 break
         if chosen_column is None:
@@ -114,14 +113,13 @@ def create_preprocessing_report():
     report = f"""
 Data Preprocessing Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 -------------------------
-# Remove HTML tags
-    # Remove URLs
-    # Remove Gutenberg headers/footers
-    # Remove non-alphanumeric except basic punctuation
-    # Remove extra newlines and tabs
-    # Normalize multiple punctuation
-    # Normalize multiple spaces
-    # Optional: lowercase normalization
+1. Removed HTML tags using BeautifulSoup.
+2. Removed headers and footers using regex.
+3. Removed non-alphabetic characters except basic punctuation.
+4. Normalized whitespace.
+5. Tokenized sentences using {'SpaCy' if get_spacy_model() else 'Regex fallback'}.
+6. Loaded datasets
+8. Saved the cleaned dataset as CSV.
 Processing completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
     return report
