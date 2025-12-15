@@ -70,8 +70,8 @@ def load_bookcorpus(config):
     try:
         dataset = load_dataset("wikitext", "wikitext-103-raw-v1", split="train")
         #texts = [clean_text(x["text"]) for x in dataset if x["text"].strip()]
-        texts = [x["text"].strip() for x in dataset if x["text"].strip()]
-        return texts[:int(config["limit_load"])],len(texts)  # Limit to first 1000 for demo
+        texts = [clean_text(x["text"].strip()) for i,x in enumerate(dataset) if x["text"].strip() and i<int(config["limit_load"])]
+        return texts,len(texts)  # Limit to first 1000 for demo
     except Exception as e:
         print(f"Failed to load WikiText dataset: {e}")
         return e,1
@@ -81,8 +81,8 @@ def load_poetry(config):
     try:
         dataset = load_dataset("DanFosing/public-domain-poetry")
         #texts = [clean_text(x["text"]) for x in dataset["train"]]
-        texts = [x["text"].strip() for x in dataset["train"]]
-        return texts[:int(config["limit_load"])],len(texts)
+        texts = [clean_text(x["text"].strip()) for i,x in enumerate(dataset["train"]) if x["text"].strip() and i<int(config["limit_load"])]
+        return texts,len(texts)
     except Exception as e:
         print(f"Failed to load poetry dataset: {e}")
         return e,1
@@ -91,31 +91,20 @@ def load_poetry(config):
 def load_chosen_dataset(dataset_name, config):
     """Dynamically load a Hugging Face dataset and extract text intelligently."""
     try:
-        dataset = load_dataset(dataset_name, streaming=True)
-        split_name = next(iter(dataset.keys()))
-        ds = dataset[split_name]
-        limit = int(config.get("limit_load", 100))
-        # Find text column: check common patterns, then fall back to first string column
-        text_col = next(
-            (c for c in ds.column_names 
-             if any(kw in c.lower() for kw in ["text", "content", "sentence", "poem", "body","story"])),
-            next((c for c in ds.column_names if isinstance(ds[0][c], str)), None)
-        )
-        
-        if not text_col:
-            raise ValueError(f"No text column found in {dataset_name}. Columns: {ds.column_names}")
-        
-        print(f"Using column '{text_col}' for text extraction from {dataset_name}")
-        texts=[]
-        for i, sample in enumerate(ds):
-            if i >= limit:
+        dataset = load_dataset(dataset_name)
+        #read one of these columns if exists (text, story, content, article, body,poem)
+        text_columns = ["text", "story", "content", "article", "body", "poem"]
+        chosen_column = None
+        for col in text_columns:
+            if col in dataset['train'].column_names:
+                chosen_column = col
                 break
-            text = clean_text(sample.get(text_col, ""))
-            if text.strip():
-                texts.append(text)
-                
-        return texts[:limit], len(texts)
-    
+        if chosen_column is None:
+            raise ValueError(f"No suitable text column found in dataset '{dataset_name}'")
+        #clean text until limit load
+        texts = [clean_text(x[chosen_column].strip()) for i,x in enumerate(dataset["train"]) if x[chosen_column].strip() and i<int(config["limit_load"])]
+        return texts, len(texts)
+        
     except Exception as e:
         print(f"❌ Failed to load chosen dataset '{dataset_name}': {e}")
         return e, 0
@@ -125,14 +114,14 @@ def create_preprocessing_report():
     report = f"""
 Data Preprocessing Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 -------------------------
-1. Removed HTML tags using BeautifulSoup.
-2. Removed headers and footers using regex.
-3. Removed non-alphabetic characters except basic punctuation.
-4. Normalized whitespace.
-5. Tokenized sentences using {'SpaCy' if get_spacy_model() else 'Regex fallback'}.
-6. Loaded datasets
-8. Saved the cleaned dataset as CSV.
-
+# Remove HTML tags
+    # Remove URLs
+    # Remove Gutenberg headers/footers
+    # Remove non-alphanumeric except basic punctuation
+    # Remove extra newlines and tabs
+    # Normalize multiple punctuation
+    # Normalize multiple spaces
+    # Optional: lowercase normalization
 Processing completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
     return report
