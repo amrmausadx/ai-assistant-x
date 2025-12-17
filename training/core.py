@@ -130,37 +130,38 @@ def generate_samples(model, tokenizer, output_dir):
     return generated_texts
 
 def prepare_tokenization_function(tokenizer, block_size):
-    """Create tokenization function for dataset mapping"""
-    effective_block_size = min (block_size,tokenizer.model_max_length)
-    def tokenize_map(examples):
-        #concatenate all texts with eos_token separator for better context
-        all_text = ""
-        for txt in examples["text"]:
-            if isinstance(txt,str) and txt.strip():
-                all_text += txt.strip() + tokenizer.eos_token
-        if not all_text:
-            return {"input_ids":[],"attention_mask":[]}
-        
-        #tokenize the concatenated text
-        tokenized = tokenizer(
-            all_text,
-            truncation = False, # handle chunking manually
-            add_special_tokens = True,
-            return_attention_mask = False 
-        )
-        input_ids = tokenized['input_ids']
-        result_input_ids = []
-        #split into chunks
-        for i in range(0,len(input_ids),effective_block_size):
-            chunk = input_ids[i:i+effective_block_size]
+    effective_block_size = min(block_size, tokenizer.model_max_length)
 
-            if len(chunk) >= effective_block_size //2:
-                #padding if needed
-                if len(chunk)< effective_block_size:
-                    chunk = chunk + [tokenizer.pad_token_id] * (effective_block_size - len(chunk))
-                    result_input_ids.append(chunk)
-        return {"input_ids": result_input_ids, "labels": result_input_ids.copy()}
-    
+    def tokenize_map(examples):
+        texts = [t for t in examples["text"] if isinstance(t, str) and t.strip()]
+        if not texts:
+            return {}
+
+        joined = tokenizer.eos_token.join(texts)
+        tokenized = tokenizer(joined, add_special_tokens=True, truncation=False)
+
+        input_ids = tokenized["input_ids"]
+        chunks = []
+
+        for i in range(0, len(input_ids), effective_block_size):
+            chunk = input_ids[i:i + effective_block_size]
+
+            if len(chunk) < effective_block_size // 2:
+                continue
+
+            if len(chunk) < effective_block_size:
+                chunk += [tokenizer.pad_token_id] * (effective_block_size - len(chunk))
+
+            chunks.append(chunk)
+
+        if not chunks:
+            return {}
+
+        return {
+            "input_ids": chunks,
+            "labels": chunks.copy()
+        }
+
     return tokenize_map
 
 def calculate_generation_quality(generated_samples):
