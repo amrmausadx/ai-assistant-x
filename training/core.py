@@ -129,13 +129,19 @@ def generate_samples(model, tokenizer, output_dir):
     
     return generated_texts
 
+
 def prepare_tokenization_function(tokenizer, block_size):
     effective_block_size = min(block_size, tokenizer.model_max_length)
 
     def tokenize_map(examples):
         texts = [t for t in examples["text"] if isinstance(t, str) and t.strip()]
+        
+        # FIXED: Always return the expected schema, even if empty
         if not texts:
-            return {}
+            return {
+                "input_ids": [],
+                "labels": []
+            }
 
         joined = tokenizer.eos_token.join(texts)
         tokenized = tokenizer(joined, add_special_tokens=True, truncation=False)
@@ -154,8 +160,12 @@ def prepare_tokenization_function(tokenizer, block_size):
 
             chunks.append(chunk)
 
+        # FIXED: Return consistent schema even when no chunks
         if not chunks:
-            return {}
+            return {
+                "input_ids": [],
+                "labels": []
+            }
 
         return {
             "input_ids": chunks,
@@ -163,7 +173,6 @@ def prepare_tokenization_function(tokenizer, block_size):
         }
 
     return tokenize_map
-
 def calculate_generation_quality(generated_samples):
     """
     Calculate quality metrics for generated text
