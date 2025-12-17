@@ -139,7 +139,8 @@ def prepare_tokenization_function(tokenizer, block_size):
         # FIXED: Always return the expected schema, even if empty
         if not texts:
             return {
-                "input_ids": [],
+                #"input_ids": [],
+                "input_ids": [[]],  # List of empty list maintains structure
                 "labels": []
             }
 
