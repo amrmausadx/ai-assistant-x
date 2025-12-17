@@ -52,8 +52,7 @@
         <h3>🧠 Last Registered Model</h3>
         <p><strong>Name:</strong> <span id="modelName">-</span></p>
         <p><strong>Version:</strong> <span id="modelVersion">-</span></p>
-        <p><strong>Status:</strong> <span id="modelStatus">-</span></p>
-        <p><strong>Creation Time:</strong> <span id="modelTime">-</span></p>
+        
     </div>
 </div>
 
@@ -113,6 +112,9 @@
                 if (data.current_loss) {
                     details += `Loss: ${data.current_loss.toFixed(4)}<br>`;
                 }
+                if (data.current_perplexity) {
+                    details += `Perplexity: ${data.current_perplexity.toFixed(4)}<br>`;
+                }
                 if (data.start_time) details += `Started: ${data.start_time}<br>`;
                 if (data.end_time) details += `Ended: ${data.end_time}<br>`;
                 if (data.run_id) details += `MLflow Run: ${data.run_id}`;
@@ -140,9 +142,14 @@
                      data.progress === 100 ? 'status-success' : 'status-info');
                 
                 let details = '';
+                 //show perplexity if available
+                if (data.current_perplexity) {
+                    details += `Perplexity: ${data.current_perplexity.toFixed(4)}<br>`;
+                }
                 if (data.start_time) details += `Started: ${data.start_time}<br>`;
                 if (data.end_time) details += `Ended: ${data.end_time}<br>`;
                 if (data.run_id) details += `MLflow Run: ${data.run_id}`;
+                
                 document.getElementById('genDetails').innerHTML = details;
                 
                 // Update MLflow run IDs
@@ -167,8 +174,8 @@
             .then(data => {
                 document.getElementById('modelName').textContent = data.name || '-';
                 document.getElementById('modelVersion').textContent = data.version || '-';
-                document.getElementById('modelStatus').textContent = data.status || '-';
-                document.getElementById('modelTime').textContent = data.creation_time || '-';
+               // document.getElementById('modelStatus').textContent = data.status || '-';
+              //  document.getElementById('modelTime').textContent = data.creation_time || '-';
                 })
             .catch(error => console.error('Error fetching last model status:', error));
             
