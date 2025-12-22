@@ -66,30 +66,40 @@ def run_preprocessing_pipeline(config,opt=None):
             update_preprocessing_status(progress=70, message='Creating DataFrame...')
             
             # Create combined DataFrame
-            df = pd.DataFrame({
+#            df = pd.DataFrame({
                 #"source": ["Gutenberg"] * len(gutenberg_texts) +
                  #         ["BookCorpus"] * len(bookcorpus_texts) +
                   #        ["Poetry"] * len(poetry_texts),
-                "text": gutenberg_texts + bookcorpus_texts + poetry_texts
-            })
+#                "text": gutenberg_texts + bookcorpus_texts + poetry_texts
+#            })
             # Add additional datasets to DataFrame
-            for dataset_name, texts in datasets_texts.items():
-                temp_df = pd.DataFrame({
-                    #"source": [dataset_name] * len(texts),
-                    "text": texts
-                })
-                df = pd.concat([df, temp_df], ignore_index=True)    
+
+#            for dataset_name, texts in datasets_texts.items():
+#                temp_df = pd.DataFrame({
+#                    #"source": [dataset_name] * len(texts),
+#                    "text": texts
+#                 })
+      #           df = pd.concat([df, temp_df], ignore_index=True)    
             update_preprocessing_status(progress=75, message='Cleaning texts...')
             # Clean texts
             update_preprocessing_status(progress=85, message='Cleaning sample and saving...')
-            
+            all_texts = []
+            all_texts.extend(gutenberg_texts)
+            all_texts.extend(bookcorpus_texts)
+            all_texts.extend(poetry_texts)
+
+            for dataset_name, texts in datasets_texts.items():
+                all_texts.extend(texts)
 
             # Save dataset
             
-            output_file = os.path.join("static", "datasets.txt")
-
-           
-            df.to_csv(output_file, index=False)
+            output_file = os.path.join("static", "datasets.txt")           
+            #df.to_csv(output_file, index=False)
+            
+            with open(output_file, "w", encoding="utf-8") as f:
+                for text in all_texts:
+                    if isinstance(text, str) and text.strip():
+                        f.write(text.strip() + "\n")
             mlflow.log_artifact(output_file)
 
             #mlflow.log_metric("total_samples", len(df))
@@ -100,7 +110,7 @@ def run_preprocessing_pipeline(config,opt=None):
             
             update_preprocessing_status(
                 progress=100,
-                message=f'✅ Preprocessing completed! Dataset size: {len(df)} samples',
+                message=f'✅ Preprocessing completed! Dataset size: {len(all_texts)} samples',
                 running=False,
                 end_time=datetime.now(),
                 experiment_name = config["experiment_name"],
