@@ -83,12 +83,14 @@ def _run_baseline_training(config):
         use_bf16 = bool(config.get("bf16", False) and bf16_supported)
         torch_dtype = torch.bfloat16 if use_bf16 else (torch.float16 if use_cuda else torch.float32)
         use_quantize = config.get("quantize", False)
+        
         if use_quantize:
             config.setdefault("lora_r", 16)
             config.setdefault("lora_alpha", 32)
             config.setdefault("lora_dropout", 0.05)
             config.setdefault("lora_bias", "none")
             config.setdefault("lora_target_modules", ["c_attn", "c_proj", "c_fc"])
+        
         precision_label = "bf16" if use_bf16 else ("fp16" if config.get("fp16", False) else "fp32")
         cuda_name = None
         if use_cuda:
@@ -102,13 +104,15 @@ def _run_baseline_training(config):
             precision=precision_label,
             mixed_precision=precision_label != "fp32",
         )
+        
         # Only enable FP16 if explicitly requested by user
         if "fp16" not in config:
-            config["fp16"] = False  # Default to False, respect user choice
+            config["fp16"] = False
         if "dataloader_pin_memory" not in config:
             config["dataloader_pin_memory"] = use_cuda
         if "gradient_checkpointing" not in config and use_cuda:
             config["gradient_checkpointing"] = True
+        
         dataloader_workers = config.get("dataloader_num_workers", 0)
         prefetch_factor = config.get("dataloader_prefetch_factor")
         if prefetch_factor is None and use_cuda and dataloader_workers and dataloader_workers > 0:
@@ -124,30 +128,42 @@ def _run_baseline_training(config):
             for key, value in config.items():
                 mlflow.log_param(key, value)
 
+            # FIXED: Clear any cached models first
+            if use_cuda:
+                torch.cuda.empty_cache()
+            
             # Load model
             update_training_status(progress=5, message="Loading tokenizer and model...")
-            # Load tokenizer
             tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
+            
+            # FIXED: Load model with proper device handling
             if use_quantize:
                 update_training_status(message="Using 4-bit quantization for model...", progress=2)
                 bnb_config = BitsAndBytesConfig(
-                        load_in_4bit=True,
-                        bnb_4bit_use_double_quant=True,
-                        bnb_4bit_compute_dtype=torch_dtype,
-                        bnb_4bit_quant_type="nf4",
-                    )
+                    load_in_4bit=True,
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_compute_dtype=torch_dtype,
+                    bnb_4bit_quant_type="nf4",
+                )
                 quantized_kwargs = {
                     "quantization_config": bnb_config,
                     "torch_dtype": torch_dtype,
                 }
                 if use_cuda:
                     quantized_kwargs["device_map"] = "auto"
+                else:
+                    # FIXED: Quantization on CPU - use device_map for memory efficiency
+                    quantized_kwargs["device_map"] = {"": "cpu"}
+                
                 model = AutoModelForCausalLM.from_pretrained(
                     config["model_name"],
                     **quantized_kwargs,
                 )
+                
+                # FIXED: Resize embeddings BEFORE preparing for kbit training
+                model.resize_token_embeddings(len(tokenizer))
                 model = prepare_model_for_kbit_training(model)
                 
                 # Auto-detect target modules for LoRA
@@ -156,21 +172,18 @@ def _run_baseline_training(config):
                     target_modules = [m.strip() for m in target_modules.split(",") if m.strip()]
                 
                 if not target_modules:
-                    # Find all linear layer names in the model
                     import re
                     linear_layers = set()
                     for name, module in model.named_modules():
                         if isinstance(module, torch.nn.Linear):
-                            # Extract the layer type name (e.g., 'q_proj', 'v_proj', 'c_attn')
                             layer_name = name.split('.')[-1]
                             linear_layers.add(layer_name)
                     
-                    # Use common patterns if found, otherwise use all linear layers
                     common_patterns = ['q_proj', 'v_proj', 'k_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj', 'c_attn', 'c_proj', 'c_fc']
                     target_modules = [m for m in common_patterns if m in linear_layers]
                     
                     if not target_modules:
-                        target_modules = list(linear_layers)[:4]  # Use first 4 linear layers
+                        target_modules = list(linear_layers)[:4]
                     
                     print(f"Auto-detected LoRA target modules: {target_modules}")
                 
@@ -184,36 +197,47 @@ def _run_baseline_training(config):
                 )
                 model = get_peft_model(model, lora_config)
                 
+                # FIXED: Enable gradient checkpointing AFTER LoRA setup
+                if config.get("gradient_checkpointing"):
+                    model.enable_input_require_grads()
+                    model.gradient_checkpointing_enable()
+                
             else:
+                # FIXED: Non-quantized model loading with proper device handling
                 base_kwargs = {"torch_dtype": torch_dtype}
+                
                 if use_cuda:
+                    # Use device_map for CUDA
                     base_kwargs["device_map"] = "auto"
-                model = AutoModelForCausalLM.from_pretrained(config["model_name"], **base_kwargs)
-                if not use_cuda:
+                    model = AutoModelForCausalLM.from_pretrained(config["model_name"], **base_kwargs)
+                else:
+                    # FIXED: For CPU, load without device_map and move manually
+                    model = AutoModelForCausalLM.from_pretrained(
+                        config["model_name"],
+                        torch_dtype=torch.float32,  # Force fp32 for CPU
+                        low_cpu_mem_usage=True
+                    )
                     model = model.to(device)
-            if config.get("gradient_checkpointing"):
-                model.gradient_checkpointing_enable()
+                
+                # Resize embeddings after loading
+                model.resize_token_embeddings(len(tokenizer))
+                
+                # FIXED: Only enable gradient checkpointing for non-quantized models if requested
+                if config.get("gradient_checkpointing"):
+                    model.gradient_checkpointing_enable()
             
-            # Ensure tokenizer and model embeddings match
-            model.resize_token_embeddings(len(tokenizer))
             mlflow.log_param("model_parameters", sum(p.numel() for p in model.parameters()))
+            mlflow.log_param("trainable_parameters", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
             # dataset
             update_training_status(progress=10, message="Loading dataset...")
-            # Base directory = your project root
             BASE_DIR = Path(__file__).resolve().parent.parent
-
-            # Build dataset path
             dataset_path = BASE_DIR / "static" / "datasets.txt"
-
-            # IMPORTANT: Convert to string for HuggingFace Datasets
             dataset_path_str = str(dataset_path)
 
-            # Validate file exists
             if not dataset_path.exists():
                 raise FileNotFoundError(f"{dataset_path} not found on server.")
 
-            # Load dataset safely
             dataset = load_dataset("text", data_files={"data": dataset_path_str})["data"]
             dataset = dataset.shuffle(seed=config.get("seed", 42))
             split = dataset.train_test_split(test_size=config.get("test_size", 0.05), seed=config.get("seed", 42))
@@ -246,6 +270,7 @@ def _run_baseline_training(config):
                 per_device_eval_batch_size=config["train_batch_size"],
                 gradient_accumulation_steps=config.get("gradient_accumulation_steps", 1),
                 do_eval=True,
+                eval_strategy="steps",  # FIXED: Changed from eval_steps parameter
                 eval_steps=config.get("eval_steps", 50),
                 save_strategy="steps",
                 save_steps=config.get("save_steps", 100),
@@ -257,8 +282,8 @@ def _run_baseline_training(config):
                 warmup_steps=min(
                     100, dataset_dict["train"].num_rows // (config["train_batch_size"] * 4)
                 ),
-                fp16=config.get("fp16", False),
-                fp16_full_eval=False,  # Explicitly disable FP16 for evaluation
+                fp16=config.get("fp16", False) and use_cuda,  # FIXED: Only use fp16 on CUDA
+                fp16_full_eval=False,
                 bf16=use_bf16,
                 dataloader_num_workers=config.get("dataloader_num_workers", 0),
                 dataloader_pin_memory=config.get("dataloader_pin_memory", False),
@@ -286,6 +311,7 @@ def _run_baseline_training(config):
             # train
             update_training_status(progress=40, message="Training...")
             trainer.train()
+            
             # save + log + register
             _save_and_register(model, tokenizer, config, run.info.run_id)
 
@@ -304,6 +330,10 @@ def _run_baseline_training(config):
 
     except Exception as e:
         return _handle_training_error(e)
+    finally:
+        # FIXED: Clean up GPU memory after training
+        if use_cuda:
+            torch.cuda.empty_cache()
 
 
 # -------------------------------
@@ -328,13 +358,7 @@ def _run_optimized_training(config):
     )
 
     try:
-        # detect hardware
-        #hardware_info = detect_hardware()
         use_optimization = config.get("optimize_for_hardware", True)
-
-        #if use_optimization or hardware_info["ram_gb"] < 8:
-       #     optimal_config = get_optimal_config(hardware_info)
-        #    config.update(optimal_config)
 
         try:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -364,11 +388,8 @@ def _run_optimized_training(config):
         with mlflow.start_run(run_name="optimized_gpt2_finetuning") as run:
             update_training_status(run_id=run.info.run_id)
 
-            # log config & hardware
             for key, value in config.items():
                 mlflow.log_param(key, value)
-            #for k, v in hardware_info.items():
-            #    mlflow.log_param(f"hardware_{k}", v)
 
             # tokenizer & model
             tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
@@ -382,8 +403,6 @@ def _run_optimized_training(config):
             if not os.path.exists(config["input_csv"]):
                 raise FileNotFoundError(f"{config['input_csv']} not found. Please run preprocessing first.")
             dataset = load_dataset("csv", data_files={"data": config["input_csv"]})["data"]
-            #if config.get("max_samples") and len(dataset) > config["max_samples"]:
-            #    dataset = create_demo_dataset(dataset, config["max_samples"])
             dataset = dataset.shuffle(seed=config.get("seed", 42))
             split = dataset.train_test_split(test_size=config.get("test_size", 0.05), seed=config.get("seed", 42))
             dataset_dict = DatasetDict({"train": split["train"], "test": split["test"]})
@@ -433,13 +452,8 @@ def _run_optimized_training(config):
                 callbacks=[MLflowCallback(run_id=run.info.run_id)],
             )
 
-            # train
             trainer.train()
-
-            # save + log + register
             _save_and_register(model, tokenizer, config, run.info.run_id)
-
-            # evaluate
             evaluate_model(trainer, tokenizer, config)
 
             update_training_status(
@@ -453,24 +467,35 @@ def _run_optimized_training(config):
 
     except Exception as e:
         return _handle_training_error(e)
-    
 
 
 # -------------------------------
 # Helpers
 # -------------------------------
-def _save_and_register(model, tokenizer, config, run_id,task="text-generation"):
+def _save_and_register(model, tokenizer, config, run_id, task="text-generation"):
     """Save locally, log artifacts, and register model in MLflow"""
-    model.save_pretrained(config["output_dir"])
-    tokenizer.save_pretrained(config["output_dir"])
-    mlflow.log_artifacts(config["output_dir"], artifact_path="model")
+    # FIXED: For quantized models, save the base model + adapters separately
+    is_peft_model = hasattr(model, 'peft_config')
+    
+    if is_peft_model:
+        # Save LoRA adapters
+        model.save_pretrained(config["output_dir"])
+        tokenizer.save_pretrained(config["output_dir"])
+        mlflow.log_artifacts(config["output_dir"], artifact_path="model")
+    else:
+        model.save_pretrained(config["output_dir"])
+        tokenizer.save_pretrained(config["output_dir"])
+        mlflow.log_artifacts(config["output_dir"], artifact_path="model")
+    
     model_uri = f"runs:/{run_id}/model"
-    # log model + tokenizer together
-    mlflow.transformers.log_model(transformers_model={"model": model, "tokenizer": tokenizer}, artifact_path="model", task=task)
+    mlflow.transformers.log_model(
+        transformers_model={"model": model, "tokenizer": tokenizer}, 
+        artifact_path="model", 
+        task=task
+    )
     result = mlflow.register_model(model_uri, config["experiment_name"]+"-model")
     update_training_status(message="Model registered in MLflow Model Registry", progress=95)
     print(f"Registered as {result.name}, version {result.version}")
-
 
 
 def _handle_training_error(e):
@@ -482,7 +507,6 @@ def _handle_training_error(e):
         end_time=datetime.now()
     )
     try:
-        
         mlflow.log_param("status", "failed")
         mlflow.log_param("error_message", str(e))
         mlflow.log_text(traceback.format_exc(), "error_traceback.txt")
