@@ -61,6 +61,7 @@ class MLflowCallback(TrainerCallback):
                 mlflow.log_metric(k, float(v), step=state.global_step if state else 0)
             except Exception:
                 pass
+
 def evaluate_model(trainer, tokenizer, config):
     """Evaluate the trained model"""
     try:
@@ -70,8 +71,10 @@ def evaluate_model(trainer, tokenizer, config):
         
         if eval_loss is not None:
             perplexity = math.exp(eval_loss) if eval_loss < 20 else float("inf")
-            mlflow.log_metric("final_perplexity", perplexity)
-            mlflow.log_metric("final_eval_loss",eval_loss)
+            # FIXED: Only log if perplexity is a valid finite number
+            if math.isfinite(perplexity):
+                mlflow.log_metric("final_perplexity", perplexity)
+            mlflow.log_metric("final_eval_loss", eval_loss)
         
         # Generate sample texts
         #generated_samples = generate_samples(trainer.model, tokenizer, config['output_dir'])
@@ -81,7 +84,7 @@ def evaluate_model(trainer, tokenizer, config):
     except Exception as e:
         print(f"Evaluation failed: {e}")
         return {}, []
-
+        
 def generate_samples(model, tokenizer, output_dir):
     """Generate sample texts from the trained model"""
     gen_inputs = [
