@@ -32,29 +32,35 @@ class MLflowCallback(TrainerCallback):
         update_training_status(progress=progress)
 
     def on_log(self, args, state: TrainerState, control: TrainerControl, logs=None, **kwargs):
-        if logs:
-            # Update current loss if available
-            if 'loss' in logs:
-                
-                #calculate perplexity
-                perplexity = math.exp(logs['loss']) if logs['loss'] < 20 else None
+    if logs:
+        # Update current loss if available
+        if 'loss' in logs:
+            # Calculate perplexity
+            perplexity = math.exp(logs['loss']) if logs['loss'] < 20 else None
 
-                update_training_status(current_loss=logs['loss'], current_perplexity=perplexity)
-                if (logs['loss']<self.best_loss):
-                    self.best_loss = logs['loss']
-                    self.best_perplexity = perplexity
-                    mlflow.log_metric("best_train_loss",self.best_loss,step=state.global_step)
-                    mlflow.log_metric("best_train_perplexity",self.best_perplexity,step=state.global_step)
-            if 'eval_loss' in logs:
-                mlflow.log_metric("eval_loss",logs['eval_loss'],step=state.global_step)
-                mlflow.log_metric("eval_perplexity",math.exp(logs["eval_loss"]) if logs['eval_loss'] < 20 else None,step=state.global_step)
-            # Log all metrics to MLflow 
-            for k, v in logs.items():
-                try:
-                    mlflow.log_metric(k, float(v), step=state.global_step if state else 0)
-                except Exception:
-                    pass
-
+            update_training_status(current_loss=logs['loss'], current_perplexity=perplexity)
+            
+            if logs['loss'] < self.best_loss:
+                self.best_loss = logs['loss']
+                self.best_perplexity = perplexity
+                mlflow.log_metric("best_train_loss", self.best_loss, step=state.global_step)
+                # FIXED: Only log perplexity if it's a valid number
+                if self.best_perplexity is not None:
+                    mlflow.log_metric("best_train_perplexity", self.best_perplexity, step=state.global_step)
+        
+        if 'eval_loss' in logs:
+            mlflow.log_metric("eval_loss", logs['eval_loss'], step=state.global_step)
+            # FIXED: Only log eval perplexity if it's a valid number
+            eval_perplexity = math.exp(logs["eval_loss"]) if logs['eval_loss'] < 20 else None
+            if eval_perplexity is not None:
+                mlflow.log_metric("eval_perplexity", eval_perplexity, step=state.global_step)
+        
+        # Log all metrics to MLflow 
+        for k, v in logs.items():
+            try:
+                mlflow.log_metric(k, float(v), step=state.global_step if state else 0)
+            except Exception:
+                pass
 def evaluate_model(trainer, tokenizer, config):
     """Evaluate the trained model"""
     try:
