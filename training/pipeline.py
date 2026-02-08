@@ -42,8 +42,8 @@ def run_training_pipeline(config, optimize=False):
         )
         return False
 
-    if optimize:
-        return _run_optimized_training(config)
+    ##if optimize:
+    ##    return _run_optimized_training(config)
     return _run_baseline_training(config)
 
 
@@ -83,13 +83,15 @@ def _run_baseline_training(config):
         use_bf16 = bool(config.get("bf16", False) and bf16_supported)
         torch_dtype = torch.bfloat16 if use_bf16 else (torch.float16 if use_cuda else torch.float32)
         use_quantize = config.get("quantize", False)
-        
-        if use_quantize:
-            config.setdefault("lora_r", 16)
-            config.setdefault("lora_alpha", 32)
-            config.setdefault("lora_dropout", 0.05)
-            config.setdefault("lora_bias", "none")
-            config.setdefault("lora_target_modules", ["c_attn", "c_proj", "c_fc"])
+        # FIXED: Always use LoRA for parameter-efficient fine-tuning
+        use_lora = True
+
+        # Set LoRA defaults (used for both quantized and non-quantized)
+        config.setdefault("lora_r", 16)
+        config.setdefault("lora_alpha", 32)
+        config.setdefault("lora_dropout", 0.05)
+        config.setdefault("lora_bias", "none")
+        config.setdefault("lora_target_modules", ["c_attn", "c_proj", "c_fc"])
         
         precision_label = "bf16" if use_bf16 else ("fp16" if config.get("fp16", False) else "fp32")
         cuda_name = None
@@ -138,9 +140,9 @@ def _run_baseline_training(config):
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
             
-            # FIXED: Load model with proper device handling
+            # Load model based on quantization setting
             if use_quantize:
-                update_training_status(message="Using 4-bit quantization for model...", progress=2)
+                update_training_status(message="Using 4-bit quantization + LoRA...", progress=2)
                 bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_use_double_quant=True,
@@ -154,7 +156,6 @@ def _run_baseline_training(config):
                 if use_cuda:
                     quantized_kwargs["device_map"] = "auto"
                 else:
-                    # FIXED: Quantization on CPU - use device_map for memory efficiency
                     quantized_kwargs["device_map"] = {"": "cpu"}
                 
                 model = AutoModelForCausalLM.from_pretrained(
@@ -162,72 +163,73 @@ def _run_baseline_training(config):
                     **quantized_kwargs,
                 )
                 
-                # FIXED: Resize embeddings BEFORE preparing for kbit training
                 model.resize_token_embeddings(len(tokenizer))
                 model = prepare_model_for_kbit_training(model)
                 
-                # Auto-detect target modules for LoRA
-                target_modules = config.get("lora_target_modules", [])
-                if isinstance(target_modules, str):
-                    target_modules = [m.strip() for m in target_modules.split(",") if m.strip()]
-                
-                if not target_modules:
-                    import re
-                    linear_layers = set()
-                    for name, module in model.named_modules():
-                        if isinstance(module, torch.nn.Linear):
-                            layer_name = name.split('.')[-1]
-                            linear_layers.add(layer_name)
-                    
-                    common_patterns = ['q_proj', 'v_proj', 'k_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj', 'c_attn', 'c_proj', 'c_fc']
-                    target_modules = [m for m in common_patterns if m in linear_layers]
-                    
-                    if not target_modules:
-                        target_modules = list(linear_layers)[:4]
-                    
-                    print(f"Auto-detected LoRA target modules: {target_modules}")
-                
-                lora_config = LoraConfig(
-                    r=config.get("lora_r", 16),
-                    lora_alpha=config.get("lora_alpha", 32),
-                    lora_dropout=config.get("lora_dropout", 0.05),
-                    bias=config.get("lora_bias", "none"),
-                    task_type="CAUSAL_LM",
-                    target_modules=target_modules,
-                )
-                model = get_peft_model(model, lora_config)
-                
-                # FIXED: Enable gradient checkpointing AFTER LoRA setup
-                if config.get("gradient_checkpointing"):
-                    model.enable_input_require_grads()
-                    model.gradient_checkpointing_enable()
-                
             else:
-                # FIXED: Non-quantized model loading with proper device handling
+                # Non-quantized model loading
+                update_training_status(message="Loading model with LoRA (no quantization)...", progress=2)
                 base_kwargs = {"torch_dtype": torch_dtype}
                 
                 if use_cuda:
-                    # Use device_map for CUDA
                     base_kwargs["device_map"] = "auto"
                     model = AutoModelForCausalLM.from_pretrained(config["model_name"], **base_kwargs)
                 else:
-                    # FIXED: For CPU, load without device_map and move manually
                     model = AutoModelForCausalLM.from_pretrained(
                         config["model_name"],
-                        torch_dtype=torch.float32,  # Force fp32 for CPU
+                        torch_dtype=torch.float32,
                         low_cpu_mem_usage=True
                     )
                     model = model.to(device)
                 
-                # Resize embeddings after loading
                 model.resize_token_embeddings(len(tokenizer))
-                
-                # FIXED: Only enable gradient checkpointing for non-quantized models if requested
-                if config.get("gradient_checkpointing"):
-                    model.gradient_checkpointing_enable()
             
+            # UNIFIED: Apply LoRA configuration (works for both quantized and non-quantized)
+            update_training_status(message="Configuring LoRA adapters...", progress=8)
+            
+            # Auto-detect target modules
+            target_modules = config.get("lora_target_modules", [])
+            if isinstance(target_modules, str):
+                target_modules = [m.strip() for m in target_modules.split(",") if m.strip()]
+            
+            if not target_modules:
+                linear_layers = set()
+                for name, module in model.named_modules():
+                    if isinstance(module, torch.nn.Linear):
+                        layer_name = name.split('.')[-1]
+                        linear_layers.add(layer_name)
+                
+                common_patterns = ['q_proj', 'v_proj', 'k_proj', 'o_proj', 
+                                 'gate_proj', 'up_proj', 'down_proj', 
+                                 'c_attn', 'c_proj', 'c_fc']
+                target_modules = [m for m in common_patterns if m in linear_layers]
+                
+                if not target_modules:
+                    target_modules = list(linear_layers)[:4]
+                
+                print(f"Auto-detected LoRA target modules: {target_modules}")
+            
+            lora_config = LoraConfig(
+                r=config.get("lora_r", 16),
+                lora_alpha=config.get("lora_alpha", 32),
+                lora_dropout=config.get("lora_dropout", 0.05),
+                bias=config.get("lora_bias", "none"),
+                task_type="CAUSAL_LM",
+                target_modules=target_modules,
+            )
+            model = get_peft_model(model, lora_config)
+            
+            # Enable gradient checkpointing if requested
+            if config.get("gradient_checkpointing"):
+                model.enable_input_require_grads()
+                model.gradient_checkpointing_enable()
+            
+            # Log parameter counts
             mlflow.log_param("model_parameters", sum(p.numel() for p in model.parameters()))
             mlflow.log_param("trainable_parameters", sum(p.numel() for p in model.parameters() if p.requires_grad))
+            trainable_percent = 100 * sum(p.numel() for p in model.parameters() if p.requires_grad) / sum(p.numel() for p in model.parameters())
+            mlflow.log_param("trainable_percent", f"{trainable_percent:.2f}%")
+            print(f"Trainable parameters: {trainable_percent:.2f}% of total")
 
             # dataset
             update_training_status(progress=10, message="Loading dataset...")
@@ -334,139 +336,6 @@ def _run_baseline_training(config):
         # FIXED: Clean up GPU memory after training
         if use_cuda:
             torch.cuda.empty_cache()
-
-
-# -------------------------------
-# Optimized training
-# -------------------------------
-def _run_optimized_training(config):
-    update_training_status(
-        running=True,
-        progress=0,
-        message="Detecting hardware and optimizing configuration...",
-        error=None,
-        start_time=datetime.now(),
-        current_epoch=0,
-        total_epochs=config.get("num_train_epochs", 2),
-        current_loss=None,
-        experiment_name = config["experiment_name"],
-        quantize=config.get("quantize", False),
-        device_type=None,
-        device_name=None,
-        precision="fp32",
-        mixed_precision=False,
-    )
-
-    try:
-        use_optimization = config.get("optimize_for_hardware", True)
-
-        try:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-        except Exception:
-            device = "cpu"
-        use_cuda = device == "cuda"
-        bf16_supported = (
-            use_cuda and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
-        )
-        use_bf16 = bool(config.get("bf16", False) and bf16_supported)
-        precision_label = "bf16" if use_bf16 else ("fp16" if config.get("fp16", False) else "fp32")
-        cuda_name = None
-        if use_cuda:
-            try:
-                cuda_name = torch.cuda.get_device_name(torch.cuda.current_device())
-            except Exception:
-                cuda_name = None
-        update_training_status(
-            device_type="cuda" if use_cuda else "cpu",
-            device_name=cuda_name,
-            precision=precision_label,
-            mixed_precision=precision_label != "fp32",
-        )
-
-        mlflow.set_experiment(config["experiment_name"])
-
-        with mlflow.start_run(run_name="optimized_gpt2_finetuning") as run:
-            update_training_status(run_id=run.info.run_id)
-
-            for key, value in config.items():
-                mlflow.log_param(key, value)
-
-            # tokenizer & model
-            tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
-            if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token
-            model = AutoModelForCausalLM.from_pretrained(config["model_name"])
-            model.resize_token_embeddings(len(tokenizer))
-            mlflow.log_param("model_parameters", sum(p.numel() for p in model.parameters()))
-
-            # dataset
-            if not os.path.exists(config["input_csv"]):
-                raise FileNotFoundError(f"{config['input_csv']} not found. Please run preprocessing first.")
-            dataset = load_dataset("csv", data_files={"data": config["input_csv"]})["data"]
-            dataset = dataset.shuffle(seed=config.get("seed", 42))
-            split = dataset.train_test_split(test_size=config.get("test_size", 0.05), seed=config.get("seed", 42))
-            dataset_dict = DatasetDict({"train": split["train"], "test": split["test"]})
-
-            # tokenize
-            tokenize_map = prepare_tokenization_function(tokenizer, config["block_size"])
-            tokenized_train = dataset_dict["train"].map(
-                tokenize_map, batched=True, batch_size=4, remove_columns=dataset_dict["train"].column_names
-            )
-            tokenized_eval = dataset_dict["test"].map(
-                tokenize_map, batched=True, batch_size=4, remove_columns=dataset_dict["test"].column_names
-            )
-            tokenized_train.set_format(type="torch", columns=["input_ids"])
-            tokenized_eval.set_format(type="torch", columns=["input_ids"])
-            data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-
-            # trainer
-            training_args = TrainingArguments(
-                output_dir=config["output_dir"],
-                overwrite_output_dir=True,
-                num_train_epochs=config["num_train_epochs"],
-                per_device_train_batch_size=config["train_batch_size"],
-                per_device_eval_batch_size=config["train_batch_size"],
-                gradient_accumulation_steps=config.get("gradient_accumulation_steps", 1),
-                eval_strategy="steps",
-                save_strategy="steps",
-                logging_strategy="steps",
-                do_eval=True,
-                eval_steps=config.get("eval_steps", 10),
-                save_steps=config.get("save_steps", 10),
-                logging_steps=config.get("logging_steps", 10),
-                learning_rate=config["learning_rate"],
-                fp16=config.get("fp16", False),
-                dataloader_num_workers=config.get("dataloader_num_workers", 0),
-                push_to_hub=False,
-                save_total_limit=2,
-                report_to="none",
-                remove_unused_columns=False,
-            )
-
-            trainer = Trainer(
-                model=model,
-                args=training_args,
-                train_dataset=tokenized_train,
-                eval_dataset=tokenized_eval,
-                data_collator=data_collator,
-                callbacks=[MLflowCallback(run_id=run.info.run_id)],
-            )
-
-            trainer.train()
-            _save_and_register(model, tokenizer, config, run.info.run_id)
-            evaluate_model(trainer, tokenizer, config)
-
-            update_training_status(
-                progress=100,
-                message="✅ Optimized training completed!",
-                running=False,
-                end_time=datetime.now(),
-                experiment_name = config["experiment_name"],
-            )
-            return True
-
-    except Exception as e:
-        return _handle_training_error(e)
 
 
 # -------------------------------
