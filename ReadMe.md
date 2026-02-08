@@ -18,6 +18,9 @@ Updates:
 
 08-02-2026: Edit Homepage Footer and Title, and add code generate option in generator page.
 
+08-02-2026: Refactor training pipeline and unify LoRA setup
+
+
 
 ########################################################################
 ##Conda lines to run
