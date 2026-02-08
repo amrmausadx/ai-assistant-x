@@ -22,6 +22,9 @@ Updates:
 
 08-02-2026: Fix memory management and improve code clarity in generation page
 
+08-02-2026: Add Qwen Coder Next option to model selection
+
+
 
 ########################################################################
 ##Conda lines to run
