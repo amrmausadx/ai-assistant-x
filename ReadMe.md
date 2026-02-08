@@ -20,6 +20,7 @@ Updates:
 
 08-02-2026: Refactor training pipeline and unify LoRA setup
 
+08-02-2026: Fix memory management and improve code clarity in generation page
 
 
 ########################################################################
