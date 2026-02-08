@@ -237,6 +237,21 @@
             border-radius: 8px;
             margin: 20px 0;
         }
+        /* Footer Styling */
+        .site-footer {
+            background-color: #1a1a1a; /* Match your navbar color */
+            color: #888;
+            padding: 20px 0;
+            text-align: center;
+            border-top: 1px solid #333;
+            font-size: 0.9rem;
+            margin-top: 40px;
+        }
+        
+        .footer-container p {
+            margin: 0;
+            letter-spacing: 0.5px;
+        }
         
         @media (max-width: 768px) {
             .nav-container {
@@ -280,6 +295,12 @@
             {% block content %}{% endblock %}
         </div>
     </div>
+    <!-- footer -->
+    <footer class="site-footer">
+        <div class="footer-container">
+            <p>&copy; 2025 Computality R&D Association. All rights reserved.</p>
+        </div>
+    </footer>
     <!-- Navigation Lock Script -->
     <script>
         // Global state
