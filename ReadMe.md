@@ -16,6 +16,8 @@ Updates:
 
 25-12-2025: Update core.py in training because of error "❌ Training failed: Missing value for required parameter 'value'."
 
+08-02-2026: Edit Homepage Footer and Title, and add code generate option in generator page.
+
 
 ########################################################################
 ##Conda lines to run
