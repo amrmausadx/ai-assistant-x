@@ -1,11 +1,10 @@
-# Enhanced pipeline.py
+# Enhanced pipeline.py - FIXED VERSION
 import time
 import mlflow
 import torch
-import torch.nn.functional as F
+#import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 from utils.status import update_generation_status, get_generation_status
-from flask import jsonify
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from rouge_score import rouge_scorer
 from datetime import datetime
@@ -22,7 +21,7 @@ def build_creative_prompt(user_prompt: str, style: str, use_instruction: bool = 
         "creative": "Write engaging, descriptive text with vivid imagery and smooth flow.\n\n",
         "story": "Continue this story naturally, maintaining the style and tone:\n\n",
         "poem": "Write a moving poem with rhythm and emotion.\n\n",
-        "code": "Generate code for the following task:\n\n"  # New instruction for code generation
+        "code": "Generate code for the following task:\n\n"
     }
     style = style.lower().strip() if style else "creative"
     instruction = style_instructions.get(style, "")
@@ -32,6 +31,7 @@ def calculate_perplexity(model, tokenizer, text: str, device: str = "cpu") -> fl
     """
     Calculate actual perplexity of generated text using the model's loss.
     Lower perplexity = better (more confident/fluent).
+    Memory-optimized version with proper cleanup.
     """
     try:
         model.eval()
@@ -42,16 +42,21 @@ def calculate_perplexity(model, tokenizer, text: str, device: str = "cpu") -> fl
         with torch.no_grad():
             outputs = model(input_ids, labels=input_ids)
             loss = outputs.loss
-            perplexity = torch.exp(loss)
+            perplexity = torch.exp(loss).item()  # Convert to float immediately
         
-        return perplexity.item()
+        # Clean up tensors
+        del input_ids, encodings, outputs
+        if device == "cuda":
+            torch.cuda.empty_cache()
+        
+        return perplexity
     except Exception as e:
         print(f"Error calculating perplexity: {e}")
         return float('inf')
 
 def run_generation(config: dict):
     """
-    Enhanced worker function for text generation.
+    Enhanced worker function for text generation with proper memory management.
     """
     prompt = config.get("prompt", "")
     max_length = min(config.get("max_length", 200), 512)
@@ -60,12 +65,15 @@ def run_generation(config: dict):
     experiment_name = config.get("experiment_name", "generation")
     style = config.get("style", "creative").lower().strip()
     seed = config.get("seed", 42)
-    
-    # New parameters for better control
-    use_instruction = config.get("use_instruction", True)  # Set False for fine-tuned models
+    use_instruction = config.get("use_instruction", True)
     
     set_seed(seed)
-
+    
+    # Variables for cleanup
+    model = None
+    tokenizer = None
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
     try:
         update_generation_status(
             running=True,
@@ -78,7 +86,6 @@ def run_generation(config: dict):
         enhanced_prompt = build_creative_prompt(prompt, style, use_instruction=not is_finetuned)
         
         run_name = "text_generation"
-        device = "cuda" if torch.cuda.is_available() else "cpu"
         
         mlflow.set_experiment(experiment_name)
         with mlflow.start_run(run_name=run_name) as run:
@@ -117,7 +124,13 @@ def run_generation(config: dict):
             # Calculate ACTUAL perplexity
             perplexity = calculate_perplexity(model, tokenizer, text, device)
             
-            # Calculate quality metrics
+            # Clean up model immediately after perplexity calculation
+            del model
+            if device == "cuda":
+                torch.cuda.empty_cache()
+            model = None  # Mark as cleaned
+            
+            # Calculate quality metrics (no model needed)
             quality_scores = calculate_text_quality(text, prompt)
             
             # Log metrics
@@ -157,9 +170,21 @@ def run_generation(config: dict):
     except Exception as e:
         handle_error(e, config)
         return False
+    finally:
+        # FIXED: Ensure cleanup even on error
+        try:
+            if model is not None:
+                del model
+            if tokenizer is not None:
+                del tokenizer
+            if device == "cuda":
+                torch.cuda.empty_cache()
+        except:
+            pass
 
 
 def handle_error(e, config=None):
+    """Handle generation errors with proper cleanup"""
     print(f"Error during generation: {e}")
     update_generation_status(
         experiment=config.get("experiment_name") if config else None,
@@ -170,30 +195,37 @@ def handle_error(e, config=None):
         end_time=datetime.utcnow()
     )
     if config and "experiment_name" in config:
-        mlflow.end_run(status="FAILED")
+        try:
+            mlflow.end_run(status="FAILED")
+        except:
+            pass
 
 
 def _generate_from_mlflow_model(prompt, max_length, temperature, output_dir, device="cpu"):
-    """Generate from fine-tuned model with improved parameters"""
+    """Generate from fine-tuned model with improved parameters and memory cleanup"""
     update_generation_status(progress=20, message="Loading Fine-Tuned Model...")
     
     tokenizer = AutoTokenizer.from_pretrained(output_dir)
-    model = AutoModelForCausalLM.from_pretrained(output_dir).to(device)
+    model = AutoModelForCausalLM.from_pretrained(output_dir)
+    
+    # Move to device
+    if device == "cuda":
+        model = model.to(device)
     
     # Fix pad token
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         model.config.pad_token_id = tokenizer.eos_token_id
 
-    model.eval()  # Important: set to eval mode
+    model.eval()
     
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
     inputs = {k: v.to(device) for k, v in inputs.items()}
     
-    # Improved generation parameters
+    # Improved generation parameters with consistent temperature clamping
     max_length = min(max_length, 512)
-    min_length = inputs['input_ids'].shape[1] + 20  # Generate at least 20 new tokens
-    temperature = float(max(0.7, min(temperature, 1.0)))  # Clamp temperature
+    min_length = inputs['input_ids'].shape[1] + 20
+    temperature = float(max(0.7, min(temperature, 1.2)))  # Clamp to [0.7, 1.2]
     
     update_generation_status(progress=40, message="Generating text...")
     
@@ -206,10 +238,10 @@ def _generate_from_mlflow_model(prompt, max_length, temperature, output_dir, dev
             min_length=min_length,
             temperature=temperature,
             do_sample=True,
-            top_k=40,  # Reduced from 50 for more focused sampling
-            top_p=0.95,  # Increased from 0.92 for more diversity
-            repetition_penalty=1.1,  # Reduced from 1.3 (less aggressive)
-            no_repeat_ngram_size=2,  # Changed from 3 to 2 (allow more natural repetition)
+            top_k=40,
+            top_p=0.95,
+            repetition_penalty=1.1,
+            no_repeat_ngram_size=2,
             num_return_sequences=1,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
@@ -220,24 +252,39 @@ def _generate_from_mlflow_model(prompt, max_length, temperature, output_dir, dev
 
     text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     
+    # Clean up generation tensors
+    del inputs, output_ids
+    if device == "cuda":
+        torch.cuda.empty_cache()
+    
     return text, model, tokenizer
 
 
 def _generate_from_pretrained(prompt, max_length, temperature, model_name, device):
-    """Generate from pretrained model with improved parameters"""
+    """Generate from pretrained model with improved parameters and memory cleanup"""
     update_generation_status(progress=20, message=f"Loading {model_name}...")
     
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+    
+    # Move to device
+    if device == "cuda":
+        model = model.to(device)
+    
     model.eval()
     
     update_generation_status(progress=40, message="Generating text...")
     
-    input_ids = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512).input_ids.to(device)
-    attention_mask = torch.ones_like(input_ids)
+    # FIXED: Use proper tokenization with attention mask
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
+    input_ids = inputs.input_ids.to(device)
+    attention_mask = inputs.attention_mask.to(device)
+    
+    # FIXED: Consistent temperature clamping
+    temperature = float(max(0.7, min(temperature, 1.2)))
     
     start_time = time.time()
     with torch.no_grad():
@@ -248,10 +295,10 @@ def _generate_from_pretrained(prompt, max_length, temperature, model_name, devic
             min_length=input_ids.shape[1] + 20,
             temperature=temperature,
             do_sample=True,
-            top_k=40,  # More focused
-            top_p=0.95,  # More diverse
-            repetition_penalty=1.1,  # Less aggressive
-            no_repeat_ngram_size=2,  # Allow more natural repetition
+            top_k=40,
+            top_p=0.95,
+            repetition_penalty=1.1,
+            no_repeat_ngram_size=2,
             num_return_sequences=1,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
@@ -259,6 +306,11 @@ def _generate_from_pretrained(prompt, max_length, temperature, model_name, devic
     
     duration = time.time() - start_time
     text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    
+    # FIXED: Proper cleanup (removed 'inputs' reference that doesn't exist later)
+    del input_ids, attention_mask, output_ids
+    if device == "cuda":
+        torch.cuda.empty_cache()
     
     mlflow.log_metric("generation_time", duration)
     
