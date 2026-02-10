@@ -1,9 +1,9 @@
-# Enhanced pipeline.py - FIXED VERSION
+# Enhanced pipeline.py - CORRECTED AND EFFICIENT VERSION
 import time
 import mlflow
 import torch
-#import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
+import traceback
+from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed, BitsAndBytesConfig
 from utils.status import update_generation_status, get_generation_status
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from rouge_score import rouge_scorer
@@ -21,7 +21,7 @@ def build_creative_prompt(user_prompt: str, style: str, use_instruction: bool = 
         "creative": "Write engaging, descriptive text with vivid imagery and smooth flow.\n\n",
         "story": "Continue this story naturally, maintaining the style and tone:\n\n",
         "poem": "Write a moving poem with rhythm and emotion.\n\n",
-        "code": "Generate code for the following task:\n\n"
+        "code": "Generate clean, efficient, well-documented code for the following task:\n\n"
     }
     style = style.lower().strip() if style else "creative"
     instruction = style_instructions.get(style, "")
@@ -36,7 +36,10 @@ def calculate_perplexity(model, tokenizer, text: str, device: str = "cpu") -> fl
     try:
         model.eval()
         encodings = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-        input_ids = encodings.input_ids.to(device)
+        
+        # Get the actual device the model is on (important for quantized models)
+        model_device = next(model.parameters()).device
+        input_ids = encodings.input_ids.to(model_device)
         
         # Create labels (shift input_ids by 1)
         with torch.no_grad():
@@ -46,7 +49,7 @@ def calculate_perplexity(model, tokenizer, text: str, device: str = "cpu") -> fl
         
         # Clean up tensors
         del input_ids, encodings, outputs
-        if device == "cuda":
+        if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
         return perplexity
@@ -59,7 +62,7 @@ def run_generation(config: dict):
     Enhanced worker function for text generation with proper memory management.
     """
     prompt = config.get("prompt", "")
-    max_length = min(config.get("max_length", 200), 512)
+    max_length = config.get("max_length", 200)  # Don't clamp here, let each function decide
     temperature = config.get("temperature", 0.8)
     model_name = config.get("model_name", "gpt2")
     experiment_name = config.get("experiment_name", "generation")
@@ -114,6 +117,11 @@ def run_generation(config: dict):
                 text, model, tokenizer = _generate_from_mlflow_model(
                     enhanced_prompt, max_length, temperature, 
                     output_dir=model_name, device=device
+                )
+            elif "Qwen/Qwen3-Coder-Next" in model_name:
+                text, model, tokenizer = _generate_from_qwen_coder(
+                    enhanced_prompt, max_length, temperature,
+                    model_name, device, use_quantization=True
                 )
             else:
                 text, model, tokenizer = _generate_from_pretrained(
@@ -171,13 +179,13 @@ def run_generation(config: dict):
         handle_error(e, config)
         return False
     finally:
-        # FIXED: Ensure cleanup even on error
+        # Ensure cleanup even on error
         try:
             if model is not None:
                 del model
             if tokenizer is not None:
                 del tokenizer
-            if device == "cuda":
+            if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except:
             pass
@@ -186,11 +194,13 @@ def run_generation(config: dict):
 def handle_error(e, config=None):
     """Handle generation errors with proper cleanup"""
     print(f"Error during generation: {e}")
+    traceback.print_exc()
+    
     update_generation_status(
         experiment=config.get("experiment_name") if config else None,
         running=False,
         progress=0,
-        message=f"Generation failed: {e}",
+        message=f"Generation failed: {str(e)}",
         error=str(e),
         end_time=datetime.utcnow()
     )
@@ -225,7 +235,7 @@ def _generate_from_mlflow_model(prompt, max_length, temperature, output_dir, dev
     # Improved generation parameters with consistent temperature clamping
     max_length = min(max_length, 512)
     min_length = inputs['input_ids'].shape[1] + 20
-    temperature = float(max(0.7, min(temperature, 1.2)))  # Clamp to [0.7, 1.2]
+    temperature = float(max(0.7, min(temperature, 1.2)))
     
     update_generation_status(progress=40, message="Generating text...")
     
@@ -268,7 +278,10 @@ def _generate_from_pretrained(prompt, max_length, temperature, model_name, devic
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    model = AutoModelForCausalLM.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+    )
     
     # Move to device
     if device == "cuda":
@@ -278,13 +291,15 @@ def _generate_from_pretrained(prompt, max_length, temperature, model_name, devic
     
     update_generation_status(progress=40, message="Generating text...")
     
-    # FIXED: Use proper tokenization with attention mask
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
     input_ids = inputs.input_ids.to(device)
     attention_mask = inputs.attention_mask.to(device)
     
-    # FIXED: Consistent temperature clamping
+    # Consistent temperature clamping
     temperature = float(max(0.7, min(temperature, 1.2)))
+    
+    # Clamp max_length for pretrained models
+    max_length = min(max_length, 512)
     
     start_time = time.time()
     with torch.no_grad():
@@ -307,12 +322,112 @@ def _generate_from_pretrained(prompt, max_length, temperature, model_name, devic
     duration = time.time() - start_time
     text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     
-    # FIXED: Proper cleanup (removed 'inputs' reference that doesn't exist later)
+    # Proper cleanup
     del input_ids, attention_mask, output_ids
     if device == "cuda":
         torch.cuda.empty_cache()
     
     mlflow.log_metric("generation_time", duration)
+    
+    return text, model, tokenizer
+
+
+def _generate_from_qwen_coder(prompt, max_length, temperature, model_name, device, use_quantization=True):
+    """
+    Generate from Qwen Coder models with 4-bit quantization.
+    """
+    update_generation_status(progress=20, message=f"Loading {model_name} with quantization...")
+    
+    # Configure model loading with quantization
+    if use_quantization and device == "cuda":
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4"
+        )
+        model_kwargs = {
+            "quantization_config": quantization_config,
+            "device_map": "auto"
+        }
+        mlflow.log_param("quantization_type", "4bit")
+    else:
+        # Fallback to full precision if no CUDA
+        model_kwargs = {
+            "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
+        }
+        mlflow.log_param("quantization_type", "none")
+    
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+    
+    # Move to device only if not using quantization (device_map handles it)
+    if not use_quantization and device == "cuda":
+        model = model.to(device)
+    
+    # Fix pad token
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        model.config.pad_token_id = tokenizer.eos_token_id
+    
+    model.eval()
+    
+    update_generation_status(progress=40, message="Generating with Qwen Coder...")
+    
+    # Qwen Coder uses chat template for instruct models
+    if "instruct" in model_name.lower():
+        messages = [
+            {"role": "system", "content": "You are Qwen, a professional software engineer created by Alibaba Cloud. You provide clean, efficient, well-documented code."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        text_input = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+    else:
+        # Base model - no chat template
+        text_input = prompt
+    
+    inputs = tokenizer(text_input, return_tensors="pt", truncation=True, max_length=512)
+    
+    # FIXED: Get the actual device the model is on (important for quantized models)
+    model_device = next(model.parameters()).device
+    inputs = {k: v.to(model_device) for k, v in inputs.items()}
+    
+    # Qwen supports longer contexts
+    max_length = min(max_length, 2048)
+    min_length = inputs['input_ids'].shape[1] + 30
+    temperature = float(max(0.7, min(temperature, 1.2)))
+    
+    start_time = time.time()
+    
+    with torch.no_grad():
+        output_ids = model.generate(
+            **inputs,
+            max_length=max_length,
+            min_length=min_length,
+            temperature=temperature,
+            do_sample=True,
+            top_k=50,
+            top_p=0.95,
+            repetition_penalty=1.1,
+            no_repeat_ngram_size=3,
+            num_return_sequences=1,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+    
+    duration = time.time() - start_time
+    mlflow.log_metric("generation_time", duration)
+    
+    text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    
+    # Clean up generation tensors
+    del inputs, output_ids
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     
     return text, model, tokenizer
 
