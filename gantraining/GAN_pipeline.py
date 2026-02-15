@@ -101,31 +101,6 @@ def load_generator_model(config, device):
         )
 
 
-def compute_sequence_log_probs(model, tokenizer, texts, device):
-    """
-    Compute log probabilities for generated sequences.
-    This is used for REINFORCE policy gradient.
-    """
-    # Tokenize the generated texts
-    inputs = tokenizer(
-        texts, 
-        return_tensors="pt", 
-        padding=True, 
-        truncation=True,
-        max_length=512
-    )
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-    
-    # Get model outputs
-    with torch.no_grad():
-        outputs = model(**inputs, labels=inputs["input_ids"])
-        # Use negative loss as log probability (approximate)
-        # For proper implementation, you'd compute token-wise log probs
-        log_prob = -outputs.loss
-    
-    return log_prob
-
-
 def calculate_perplexity_on_texts(model, tokenizer, texts, device):
     """
     Calculate perplexity on a set of texts.
@@ -158,6 +133,126 @@ def calculate_perplexity_on_texts(model, tokenizer, texts, device):
     avg_loss = total_loss / count
     perplexity = math.exp(avg_loss) if avg_loss < 20 else float('inf')
     return perplexity
+
+
+def compute_generator_loss_reinforce(generator, tokenizer, disc_tokenizer, discriminator, 
+                                      prompts, device, temperature=0.8):
+    """
+    Compute generator loss using REINFORCE policy gradient.
+    
+    REINFORCE formula: L = -E[R * log P(a|s)]
+    Where:
+    - R is the reward from discriminator
+    - P(a|s) is the probability of generated action (token) given state
+    
+    Since we can't get gradients through generate(), we:
+    1. Generate samples (no grad)
+    2. Compute their log probabilities (with grad)
+    3. Get rewards from discriminator (no grad)
+    4. Compute policy gradient loss
+    """
+    generator.train()
+    discriminator.eval()
+    
+    # Step 1: Generate samples (no gradients)
+    gen_inputs = tokenizer(
+        prompts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=128
+    )
+    gen_inputs = {k: v.to(device) for k, v in gen_inputs.items()}
+    
+    with torch.no_grad():
+        gen_outputs = generator.generate(
+            **gen_inputs,
+            max_length=200,
+            min_length=50,
+            do_sample=True,
+            temperature=temperature,
+            top_k=50,
+            top_p=0.95,
+            num_return_sequences=1,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            repetition_penalty=1.2,
+            no_repeat_ngram_size=3,
+        )
+    
+    # Decode generated texts
+    gen_texts = [tokenizer.decode(g, skip_special_tokens=True) for g in gen_outputs]
+    
+    # Step 2: Get discriminator rewards (no gradients)
+    with torch.no_grad():
+        disc_inputs = disc_tokenizer(
+            gen_texts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=512
+        )
+        disc_inputs = {k: v.to(device) for k, v in disc_inputs.items()}
+        
+        d_logits = discriminator(disc_inputs["input_ids"], attention_mask=disc_inputs["attention_mask"])
+        d_probs = F.softmax(d_logits, dim=-1)
+        rewards = d_probs[:, 1]  # Probability of being "real"
+    
+    # Step 3: Compute log probabilities of generated sequences (WITH gradients)
+    # Re-tokenize the generated text to get inputs for computing log probs
+    gen_text_inputs = tokenizer(
+        gen_texts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=512
+    )
+    gen_text_inputs = {k: v.to(device) for k, v in gen_text_inputs.items()}
+    
+    # Forward pass through generator to get logits
+    outputs = generator(
+        input_ids=gen_text_inputs["input_ids"],
+        attention_mask=gen_text_inputs["attention_mask"]
+    )
+    logits = outputs.logits
+    
+    # Compute log probabilities for each token
+    # Shift logits and labels for next-token prediction
+    shift_logits = logits[..., :-1, :].contiguous()
+    shift_labels = gen_text_inputs["input_ids"][..., 1:].contiguous()
+    
+    # Compute log probabilities
+    log_probs = F.log_softmax(shift_logits, dim=-1)
+    
+    # Gather log probs of actual tokens
+    # shape: (batch_size, seq_len - 1)
+    token_log_probs = log_probs.gather(
+        dim=-1,
+        index=shift_labels.unsqueeze(-1)
+    ).squeeze(-1)
+    
+    # Mask out padding tokens
+    if gen_text_inputs["attention_mask"] is not None:
+        mask = gen_text_inputs["attention_mask"][..., 1:].float()
+        token_log_probs = token_log_probs * mask
+        seq_lengths = mask.sum(dim=1)
+    else:
+        seq_lengths = torch.full((token_log_probs.size(0),), token_log_probs.size(1), 
+                                 dtype=torch.float, device=device)
+    
+    # Average log prob per sequence
+    avg_log_probs = token_log_probs.sum(dim=1) / (seq_lengths + 1e-8)
+    
+    # Step 4: Compute REINFORCE loss
+    # We want to maximize reward, so minimize negative reward
+    # Baseline: subtract mean reward to reduce variance
+    baseline = rewards.mean().detach()
+    advantages = rewards - baseline
+    
+    # Policy gradient loss: -E[advantage * log_prob]
+    policy_loss = -(advantages * avg_log_probs).mean()
+    
+    return policy_loss, rewards.mean().item(), gen_texts
 
 
 # -------------------------
@@ -239,7 +334,6 @@ def run_gan_training(config, real_texts=None):
             # Load Generator
             # -------------------------
             generator, tokenizer = load_generator_model(config, device)
-            generator.train()  # Set to training mode
             
             # Ensure pad token exists
             if tokenizer.pad_token is None:
@@ -297,9 +391,9 @@ def run_gan_training(config, real_texts=None):
                 epoch_start_time = datetime.utcnow()
                 
                 # -------------------------
-                # 1. Generate Fake Samples
+                # 1. Generate Fake Samples (for discriminator training)
                 # -------------------------
-                generator.eval()  # Set to eval mode for generation
+                generator.eval()
                 fake_samples = []
                 
                 with torch.no_grad():
@@ -332,7 +426,7 @@ def run_gan_training(config, real_texts=None):
                         
                         # Decode generated texts
                         gen_texts = [tokenizer.decode(g, skip_special_tokens=True) for g in outputs]
-                        fake_samples.extend(gen_texts)  # Use extend, not append
+                        fake_samples.extend(gen_texts)
                 
                 # Clean up fake samples
                 fake_samples = [t.strip() for t in fake_samples if t.strip()]
@@ -391,82 +485,18 @@ def run_gan_training(config, real_texts=None):
                 # -------------------------
                 # 3. Train Generator (REINFORCE)
                 # -------------------------
-                generator.train()
-                
-                # Generate new samples for training (with gradients)
                 g_optimizer.zero_grad()
                 
-                # Tokenize prompts
-                gen_inputs = tokenizer(
-                    prompts, 
-                    return_tensors="pt", 
-                    padding=True, 
-                    truncation=True,
-                    max_length=128
+                # Compute generator loss using REINFORCE
+                g_loss, avg_reward, gen_texts = compute_generator_loss_reinforce(
+                    generator=generator,
+                    tokenizer=tokenizer,
+                    disc_tokenizer=disc_tokenizer,
+                    discriminator=discriminator,
+                    prompts=prompts,
+                    device=device,
+                    temperature=0.8
                 )
-                gen_inputs = {k: v.to(device) for k, v in gen_inputs.items()}
-                
-                # Generate sequences (with gradient tracking for REINFORCE)
-                # NOTE: generate() doesn't support gradients directly, so we use a simplified approach
-                # For production GAN training, you'd need a more sophisticated policy gradient implementation
-                
-                # Simplified approach: Train on generated samples using discriminator feedback
-                with torch.no_grad():
-                    gen_outputs = generator.generate(
-                        **gen_inputs,
-                        max_length=200,
-                        min_length=50,
-                        do_sample=True,
-                        temperature=0.8,
-                        top_k=50,
-                        top_p=0.95,
-                        num_return_sequences=1,
-                        pad_token_id=tokenizer.pad_token_id,
-                        eos_token_id=tokenizer.eos_token_id,
-                        repetition_penalty=1.2,
-                    )
-                
-                # Decode generated texts
-                gen_texts = [tokenizer.decode(g, skip_special_tokens=True) for g in gen_outputs]
-                
-                # Get discriminator scores (as rewards)
-                discriminator.eval()
-                enc_fake = disc_tokenizer(
-                    gen_texts, 
-                    return_tensors="pt", 
-                    padding=True, 
-                    truncation=True,
-                    max_length=512
-                )
-                enc_fake = {k: v.to(device) for k, v in enc_fake.items()}
-                
-                with torch.no_grad():
-                    d_logits = discriminator(enc_fake["input_ids"], attention_mask=enc_fake["attention_mask"])
-                    d_probs = F.softmax(d_logits, dim=-1)
-                    rewards = d_probs[:, 1]  # Probability of being "real"
-                
-                # Compute generator loss using language modeling on rewarded sequences
-                # This is a simplified REINFORCE-like approach
-                gen_train_inputs = tokenizer(
-                    gen_texts,
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True,
-                    max_length=512
-                )
-                gen_train_inputs = {k: v.to(device) for k, v in gen_train_inputs.items()}
-                
-                # Forward pass through generator
-                outputs = generator(**gen_train_inputs, labels=gen_train_inputs["input_ids"])
-                lm_loss = outputs.loss
-                
-                # Weight loss by discriminator reward (higher reward = lower loss weight)
-                # We want to minimize loss for high-reward samples
-                reward_weight = (1.0 - rewards.mean())  # Invert: low reward = high weight
-                g_loss = lm_loss * reward_weight
-                
-                # Alternative: Direct policy gradient (more complex, requires token-level log probs)
-                # For simplicity, we use the weighted LM loss approach above
                 
                 # Backward pass
                 g_loss.backward()
@@ -477,10 +507,10 @@ def run_gan_training(config, real_texts=None):
                 d_scheduler.step()
                 g_scheduler.step()
                 
-                print(f"  G Loss: {g_loss.item():.4f}, Avg Reward: {rewards.mean().item():.4f}")
+                print(f"  G Loss: {g_loss.item():.4f}, Avg Reward: {avg_reward:.4f}")
                 
                 # -------------------------
-                # 4. Calculate Perplexity (on validation samples)
+                # 4. Calculate Perplexity
                 # -------------------------
                 perplexity = calculate_perplexity_on_texts(generator, tokenizer, gen_texts, device)
                 print(f"  Perplexity: {perplexity:.2f}")
@@ -494,7 +524,7 @@ def run_gan_training(config, real_texts=None):
                     "d_loss": d_loss.item(),
                     "d_accuracy": d_accuracy,
                     "g_loss": g_loss.item(),
-                    "avg_reward": rewards.mean().item(),
+                    "avg_reward": avg_reward,
                     "perplexity": perplexity if perplexity != float('inf') else None,
                     "learning_rate_d": d_optimizer.param_groups[0]['lr'],
                     "learning_rate_g": g_optimizer.param_groups[0]['lr'],
@@ -502,7 +532,7 @@ def run_gan_training(config, real_texts=None):
                 
                 # Log sample generated text
                 if epoch % 5 == 0 or epoch == epochs - 1:
-                    sample_text = gen_texts[0][:500]  # First 500 chars
+                    sample_text = gen_texts[0][:500] if gen_texts else "No text generated"
                     mlflow.log_text(sample_text, f"sample_epoch_{epoch+1}.txt")
                 
                 update_gan_training_status(
@@ -519,7 +549,7 @@ def run_gan_training(config, real_texts=None):
                 )
                 
                 # Clean up tensors to save memory
-                del enc, labels_tensor, logits, gen_inputs, gen_outputs, enc_fake, gen_train_inputs, outputs
+                del enc, labels_tensor, logits
                 if device == "cuda":
                     torch.cuda.empty_cache()
 
