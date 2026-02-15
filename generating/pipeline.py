@@ -20,8 +20,8 @@ def build_creative_prompt(user_prompt: str, style: str, use_instruction: bool = 
     style_instructions = {
         "creative": "Write engaging, descriptive text with vivid imagery and smooth flow.\n\n",
         "story": "Continue this story naturally, maintaining the style and tone:\n\n",
-        "poem": "Write a moving poem with rhythm and emotion.\n\n",
-        "code": "Generate clean, efficient, well-documented code for the following task:\n\n"
+        "poem": "Write a moving poem with rhythm and emotion.\n\n"
+        #"code": "Generate clean, efficient, well-documented code for the following task:\n\n"
     }
     style = style.lower().strip() if style else "creative"
     instruction = style_instructions.get(style, "")
