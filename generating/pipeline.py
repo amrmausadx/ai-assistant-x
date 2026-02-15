@@ -113,7 +113,7 @@ def run_generation(config: dict):
             )
             
             # Generate text and get model/tokenizer for perplexity calculation
-            if is_finetuned:
+            if model_name == "./gpt2_finetuned/":
                 text, model, tokenizer = _generate_from_mlflow_model(
                     enhanced_prompt, max_length, temperature, 
                     output_dir=model_name, device=device
