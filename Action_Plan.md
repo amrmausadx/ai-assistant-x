@@ -211,9 +211,3 @@ This project should be executed in 2–3 experimental cycles, rather than one lo
 *   1 documented conclusion.
 
 **Estimated Total Project Duration:** 3–4 weeks
-
----
-
-**Author:** Manus AI
-
-**Note:** This action plan can be further expanded with an experiment tracking template section, ablation study design, or restructured as a thesis methodology chapter upon request.
