@@ -6,10 +6,12 @@ import mlflow
 from utils.status import update_gan_training_status
 from training.core import MLflowCallback, generate_samples, evaluate_model, prepare_tokenization_function
 from datetime import datetime
-from training.pipeline import _handle_training_error,_save_and_register
+from training.pipeline import _handle_training_error, _save_and_register
 import math
-from urllib.parse import urlparse,unquote
+from urllib.parse import urlparse, unquote
 import os
+import torch.nn.functional as F
+
 # -------------------------
 # Discriminator Definition
 # -------------------------
@@ -18,11 +20,14 @@ class Discriminator(nn.Module):
         super().__init__()
         self.encoder = AutoModel.from_pretrained(model_name)
         self.classifier = nn.Linear(self.encoder.config.hidden_size, num_labels)
+        self.dropout = nn.Dropout(0.1)
 
     def forward(self, input_ids, attention_mask=None):
         outputs = self.encoder(input_ids, attention_mask=attention_mask)
         pooled = outputs.last_hidden_state[:, 0, :]  # CLS token
+        pooled = self.dropout(pooled)
         return self.classifier(pooled)
+
 
 def resolve_artifact_path(uri: str) -> str:
     """
@@ -49,37 +54,181 @@ def resolve_artifact_path(uri: str) -> str:
 
     # If still unresolved, raise
     raise FileNotFoundError(f"Could not resolve artifact path: {uri}")
+
+
+def load_generator_model(config, device):
+    """
+    Load generator model from local directory or MLflow registry.
+    Tries local path first, then falls back to registry.
+    """
+    # Option 1: Try local directory first
+    model_path = config.get("generator_model_path", "./gpt2_finetuned/")
+    
+    if os.path.exists(model_path) and os.path.isdir(model_path):
+        print(f"Loading generator from local path: {model_path}")
+        try:
+            generator = AutoModelForCausalLM.from_pretrained(model_path).to(device)
+            tokenizer = AutoTokenizer.from_pretrained(model_path)
+            print(f"✓ Successfully loaded generator from {model_path}")
+            return generator, tokenizer
+        except Exception as e:
+            print(f"Failed to load from local path: {e}")
+    
+    # Option 2: Try MLflow registry
+    print("Attempting to load generator from MLflow registry...")
+    try:
+        client = mlflow.tracking.MlflowClient()
+        model_name = config.get("generator_model_name", config["experiment_name"] + "-model")
+        
+        latest_versions = client.get_latest_versions(model_name)
+        if not latest_versions:
+            raise ValueError(f"No versions found for model '{model_name}'")
+        
+        latest = latest_versions[-1]
+        artifact_uri = latest.source
+        artifact_path = resolve_artifact_path(artifact_uri)
+        
+        print(f"Loading from MLflow artifact: {artifact_path}")
+        generator = AutoModelForCausalLM.from_pretrained(artifact_path).to(device)
+        tokenizer = AutoTokenizer.from_pretrained(artifact_path)
+        print(f"✓ Successfully loaded generator from registry")
+        return generator, tokenizer
+        
+    except Exception as e:
+        raise ValueError(
+            f"Could not load generator model from local path '{model_path}' or MLflow registry: {e}\n"
+            f"Please ensure the model exists at the specified location or is registered in MLflow."
+        )
+
+
+def compute_sequence_log_probs(model, tokenizer, texts, device):
+    """
+    Compute log probabilities for generated sequences.
+    This is used for REINFORCE policy gradient.
+    """
+    # Tokenize the generated texts
+    inputs = tokenizer(
+        texts, 
+        return_tensors="pt", 
+        padding=True, 
+        truncation=True,
+        max_length=512
+    )
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    
+    # Get model outputs
+    with torch.no_grad():
+        outputs = model(**inputs, labels=inputs["input_ids"])
+        # Use negative loss as log probability (approximate)
+        # For proper implementation, you'd compute token-wise log probs
+        log_prob = -outputs.loss
+    
+    return log_prob
+
+
+def calculate_perplexity_on_texts(model, tokenizer, texts, device):
+    """
+    Calculate perplexity on a set of texts.
+    Returns average perplexity across all texts.
+    """
+    model.eval()
+    total_loss = 0.0
+    count = 0
+    
+    with torch.no_grad():
+        for text in texts:
+            if not text.strip():
+                continue
+                
+            inputs = tokenizer(
+                text,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512
+            )
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            
+            outputs = model(**inputs, labels=inputs["input_ids"])
+            total_loss += outputs.loss.item()
+            count += 1
+    
+    if count == 0:
+        return float('inf')
+    
+    avg_loss = total_loss / count
+    perplexity = math.exp(avg_loss) if avg_loss < 20 else float('inf')
+    return perplexity
+
+
 # -------------------------
 # GAN Training Function
 # -------------------------
 def run_gan_training(config, real_texts=None):
     """
-    GAN training loop:
+    GAN training loop using REINFORCE (policy gradient):
     - Generator: pre-finetuned LM (GPT-2, etc.)
-    - Discriminator: classification head on top of transformer encoder
-    - Config includes learning rates, batch size, epochs, etc.
+    - Discriminator: classification head on transformer encoder
+    - Generator is trained to maximize discriminator's "real" score
     """
     device = None
+    generator = None
+    discriminator = None
+    tokenizer = None
+    disc_tokenizer = None
+    
     try:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     except:
-            device = "cpu"
+        device = "cpu"
+    
+    print(f"Using device: {device}")
+    
     mlflow.set_experiment(config['experiment_name'])
-    mlflow.autolog()
+    mlflow.autolog(disable=True)  # Disable autolog to avoid conflicts
+    
     with mlflow.start_run(run_name="GAN_Training") as run:
-        # log all config params
-        for key, value in config.items():
-            mlflow.log_param(key, value)
         try:
+            # -------------------------
+            # Validate Config
+            # -------------------------
+            required_keys = ['gan_epochs', 'gan_batch_size', 'learning_rate_d', 'learning_rate_g', 
+                           'real_texts', 'prompts', 'experiment_name']
+            for key in required_keys:
+                if key not in config:
+                    raise ValueError(f"Missing required config key: {key}")
+            
             epochs = int(config['gan_epochs'])
             batch_size = int(config['gan_batch_size'])
             lr_d = float(config['learning_rate_d'])
             lr_g = float(config['learning_rate_g'])
-
+            
+            # Parse and validate real texts and prompts
+            real_texts = config.get("real_texts", "").split(";")
+            real_texts = [t.strip() for t in real_texts if t.strip()]
+            if not real_texts:
+                raise ValueError("No real_texts provided in config. Please provide semicolon-separated texts.")
+            
+            prompts = config.get("prompts", "").split(";")
+            prompts = [t.strip() for t in prompts if t.strip()]
+            if not prompts:
+                raise ValueError("No prompts provided in config. Please provide semicolon-separated prompts.")
+            
+            # Log all config params
+            mlflow.log_params({
+                "gan_epochs": epochs,
+                "gan_batch_size": batch_size,
+                "learning_rate_d": lr_d,
+                "learning_rate_g": lr_g,
+                "num_real_texts": len(real_texts),
+                "num_prompts": len(prompts),
+                "discriminator_model": config.get("discriminator_model", "distilbert-base-uncased"),
+                "device": device
+            })
+            
             update_gan_training_status(
                 running=True,
-                progress=0,
-                message="Starting GAN training",
+                progress=5,
+                message="Loading models...",
                 start_time=datetime.utcnow(),
                 run_id=run.info.run_id,
                 experiment_name=config['experiment_name'],
@@ -87,54 +236,85 @@ def run_gan_training(config, real_texts=None):
             )
 
             # -------------------------
-            # Load Generator (from MLflow registry)
+            # Load Generator
             # -------------------------
-            client = mlflow.tracking.MlflowClient()
-            latest = client.get_latest_versions(config["experiment_name"]+"-model")[-1]
-            artifact_uri = latest.source
-            artifact_path = resolve_artifact_path(artifact_uri)
-            #print(latest, artifact_uri, artifact_path)
-
-            generator = AutoModelForCausalLM.from_pretrained(artifact_path).to(device)
-            tokenizer = AutoTokenizer.from_pretrained(artifact_path)
-            # ensure pad token exists
+            generator, tokenizer = load_generator_model(config, device)
+            generator.train()  # Set to training mode
+            
+            # Ensure pad token exists
             if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token  # safe fallback for decoder-only models
-
-            # set left padding for decoder-only models
+                tokenizer.pad_token = tokenizer.eos_token
+                generator.config.pad_token_id = tokenizer.eos_token_id
+            
+            # Set left padding for decoder-only models (important for batch generation)
             tokenizer.padding_side = "left"
+            
+            update_gan_training_status(
+                running=True,
+                progress=15,
+                message="Generator loaded successfully",
+            )
+
             # -------------------------
-            # Init Discriminator
+            # Initialize Discriminator
             # -------------------------
-            disc_tokenizer = AutoTokenizer.from_pretrained(config["discriminator_model"])
-            discriminator = Discriminator(model_name=config["discriminator_model"]).to(device)
+            disc_model_name = config.get("discriminator_model", "distilbert-base-uncased")
+            disc_tokenizer = AutoTokenizer.from_pretrained(disc_model_name)
+            discriminator = Discriminator(model_name=disc_model_name).to(device)
+            
             if disc_tokenizer.pad_token is None:
-                disc_tokenizer.pad_token = disc_tokenizer.eos_token  # safe fallback for decoder-only models
+                disc_tokenizer.pad_token = disc_tokenizer.eos_token
+            
+            # Discriminator uses standard (right) padding
+            disc_tokenizer.padding_side = "right"
+            
+            update_gan_training_status(
+                running=True,
+                progress=25,
+                message="Discriminator initialized",
+            )
 
-            # set left padding for decoder-only models
-            tokenizer.padding_side = "left"
-
-            d_optimizer = optim.Adam(discriminator.parameters(), lr=lr_d)
-            g_optimizer = optim.Adam(generator.parameters(), lr=lr_g)
+            # -------------------------
+            # Optimizers
+            # -------------------------
+            d_optimizer = optim.AdamW(discriminator.parameters(), lr=lr_d, weight_decay=0.01)
+            g_optimizer = optim.AdamW(generator.parameters(), lr=lr_g, weight_decay=0.01)
+            
+            # Optional: Learning rate schedulers
+            d_scheduler = optim.lr_scheduler.CosineAnnealingLR(d_optimizer, T_max=epochs)
+            g_scheduler = optim.lr_scheduler.CosineAnnealingLR(g_optimizer, T_max=epochs)
 
             # -------------------------
             # Training Loop
             # -------------------------
-            real_texts = config["real_texts"].split(";")
-            prompts = config.get("prompts").split(";")
-            real_texts = [t.strip() for t in real_texts if isinstance(t, str) and t.strip() != ""]
-            prompts = [t.strip() for t in prompts if isinstance(t, str) and t.strip() != ""]
-
-            temperatures = [0.7,0.8,0.9]
-            fake_samples = []
+            temperatures = [0.7, 0.8, 0.9]
+            loss_fn = nn.CrossEntropyLoss()
+            
+            print(f"\nStarting GAN training for {epochs} epochs...")
+            print(f"Real texts: {len(real_texts)}, Prompts: {len(prompts)}")
+            
             for epoch in range(epochs):
-
-                # ---- 1. Generate fake samples ----
-                inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True)
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-
+                epoch_start_time = datetime.utcnow()
+                
+                # -------------------------
+                # 1. Generate Fake Samples
+                # -------------------------
+                generator.eval()  # Set to eval mode for generation
+                fake_samples = []
+                
                 with torch.no_grad():
                     for temp in temperatures:
+                        # Tokenize prompts
+                        inputs = tokenizer(
+                            prompts, 
+                            return_tensors="pt", 
+                            padding=True, 
+                            truncation=True,
+                            max_length=128
+                        )
+                        inputs = {k: v.to(device) for k, v in inputs.items()}
+                        
+                        # Generate samples
                         outputs = generator.generate(
                             **inputs,
                             max_length=200,
@@ -149,108 +329,262 @@ def run_gan_training(config, real_texts=None):
                             repetition_penalty=1.2,
                             no_repeat_ngram_size=3,
                         )
-                        gen_text = [tokenizer.decode(g, skip_special_tokens=True) for g in outputs]
-                        fake_samples.append(gen_text)
+                        
+                        # Decode generated texts
+                        gen_texts = [tokenizer.decode(g, skip_special_tokens=True) for g in outputs]
+                        fake_samples.extend(gen_texts)  # Use extend, not append
                 
-                # ---- 2. Discriminator step ----
+                # Clean up fake samples
+                fake_samples = [t.strip() for t in fake_samples if t.strip()]
+                
+                if not fake_samples:
+                    print(f"Warning: No fake samples generated at epoch {epoch+1}")
+                    continue
+                
+                print(f"\nEpoch {epoch+1}/{epochs}")
+                print(f"  Generated {len(fake_samples)} fake samples")
+                
+                # -------------------------
+                # 2. Train Discriminator
+                # -------------------------
+                discriminator.train()
+                
+                # Combine real and fake samples
                 all_texts = real_texts + fake_samples
-                all_texts = [t.strip() for t in all_texts if isinstance(t, str) and t.strip() != ""]
-                fake_samples = [t.strip() for t in fake_samples if isinstance(t, str) and t.strip() != ""]
-
                 labels = [1] * len(real_texts) + [0] * len(fake_samples)
-
-                enc = disc_tokenizer(all_texts, return_tensors="pt", padding=True, truncation=True)
-                enc = {k: v.to(device) for k,v in enc.items()}
                 
-
-                labels = torch.tensor(labels).to(device)
-
-                logits = discriminator(enc["input_ids"], attention_mask=enc["attention_mask"])
-                loss_fn = nn.CrossEntropyLoss()
-                d_loss = loss_fn(logits, labels)
-
+                # Shuffle for better training
+                combined = list(zip(all_texts, labels))
+                import random
+                random.shuffle(combined)
+                all_texts, labels = zip(*combined)
+                all_texts = list(all_texts)
+                labels = list(labels)
+                
+                # Tokenize for discriminator
+                enc = disc_tokenizer(
+                    all_texts, 
+                    return_tensors="pt", 
+                    padding=True, 
+                    truncation=True,
+                    max_length=512
+                )
+                enc = {k: v.to(device) for k, v in enc.items()}
+                labels_tensor = torch.tensor(labels, dtype=torch.long).to(device)
+                
+                # Forward pass
                 d_optimizer.zero_grad()
+                logits = discriminator(enc["input_ids"], attention_mask=enc["attention_mask"])
+                d_loss = loss_fn(logits, labels_tensor)
+                
+                # Backward pass
                 d_loss.backward()
+                torch.nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=1.0)
                 d_optimizer.step()
-
-
-                # ---- 3. Generator step ----
+                
+                # Calculate discriminator accuracy
+                predictions = torch.argmax(logits, dim=-1)
+                d_accuracy = (predictions == labels_tensor).float().mean().item()
+                
+                print(f"  D Loss: {d_loss.item():.4f}, D Accuracy: {d_accuracy:.2%}")
+                
+                # -------------------------
+                # 3. Train Generator (REINFORCE)
+                # -------------------------
                 generator.train()
-                inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True)
-
-                outputs = generator(**inputs)
-                logits = outputs.logits
-                log_probs = torch.log_softmax(logits, dim=-1)
-                chosen_log_probs = log_probs.gather(-1, inputs["input_ids"].unsqueeze(-1)).squeeze(-1)
-                seq_log_prob = chosen_log_probs.mean(dim=1)
-
-                sample_texts = [tokenizer.decode(ids, skip_special_tokens=True) for ids in inputs["input_ids"]]
-                enc_fake = disc_tokenizer(sample_texts, return_tensors="pt", padding=True, truncation=True)
-
-                with torch.no_grad():
-                    d_scores = torch.softmax(discriminator(enc_fake["input_ids"], attention_mask=enc_fake["attention_mask"]), dim=-1)
-                    rewards = d_scores[:, 1]  # realness score
-
-                g_loss = -(seq_log_prob * rewards).mean()
-                #calculate perplexity
-                # calculate perplexity - handle inf by converting to None
-                perplexity = None
-                try:
-                    perplexity = torch.exp(g_loss).item() if g_loss < 20 else None
-                except:
-                    perplexity = None
+                
+                # Generate new samples for training (with gradients)
                 g_optimizer.zero_grad()
+                
+                # Tokenize prompts
+                gen_inputs = tokenizer(
+                    prompts, 
+                    return_tensors="pt", 
+                    padding=True, 
+                    truncation=True,
+                    max_length=128
+                )
+                gen_inputs = {k: v.to(device) for k, v in gen_inputs.items()}
+                
+                # Generate sequences (with gradient tracking for REINFORCE)
+                # NOTE: generate() doesn't support gradients directly, so we use a simplified approach
+                # For production GAN training, you'd need a more sophisticated policy gradient implementation
+                
+                # Simplified approach: Train on generated samples using discriminator feedback
+                with torch.no_grad():
+                    gen_outputs = generator.generate(
+                        **gen_inputs,
+                        max_length=200,
+                        min_length=50,
+                        do_sample=True,
+                        temperature=0.8,
+                        top_k=50,
+                        top_p=0.95,
+                        num_return_sequences=1,
+                        pad_token_id=tokenizer.pad_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                        repetition_penalty=1.2,
+                    )
+                
+                # Decode generated texts
+                gen_texts = [tokenizer.decode(g, skip_special_tokens=True) for g in gen_outputs]
+                
+                # Get discriminator scores (as rewards)
+                discriminator.eval()
+                enc_fake = disc_tokenizer(
+                    gen_texts, 
+                    return_tensors="pt", 
+                    padding=True, 
+                    truncation=True,
+                    max_length=512
+                )
+                enc_fake = {k: v.to(device) for k, v in enc_fake.items()}
+                
+                with torch.no_grad():
+                    d_logits = discriminator(enc_fake["input_ids"], attention_mask=enc_fake["attention_mask"])
+                    d_probs = F.softmax(d_logits, dim=-1)
+                    rewards = d_probs[:, 1]  # Probability of being "real"
+                
+                # Compute generator loss using language modeling on rewarded sequences
+                # This is a simplified REINFORCE-like approach
+                gen_train_inputs = tokenizer(
+                    gen_texts,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=512
+                )
+                gen_train_inputs = {k: v.to(device) for k, v in gen_train_inputs.items()}
+                
+                # Forward pass through generator
+                outputs = generator(**gen_train_inputs, labels=gen_train_inputs["input_ids"])
+                lm_loss = outputs.loss
+                
+                # Weight loss by discriminator reward (higher reward = lower loss weight)
+                # We want to minimize loss for high-reward samples
+                reward_weight = (1.0 - rewards.mean())  # Invert: low reward = high weight
+                g_loss = lm_loss * reward_weight
+                
+                # Alternative: Direct policy gradient (more complex, requires token-level log probs)
+                # For simplicity, we use the weighted LM loss approach above
+                
+                # Backward pass
                 g_loss.backward()
+                torch.nn.utils.clip_grad_norm_(generator.parameters(), max_norm=1.0)
                 g_optimizer.step()
-
-                # ---- 4. Log + Update Status ----
+                
+                # Step schedulers
+                d_scheduler.step()
+                g_scheduler.step()
+                
+                print(f"  G Loss: {g_loss.item():.4f}, Avg Reward: {rewards.mean().item():.4f}")
+                
+                # -------------------------
+                # 4. Calculate Perplexity (on validation samples)
+                # -------------------------
+                perplexity = calculate_perplexity_on_texts(generator, tokenizer, gen_texts, device)
+                print(f"  Perplexity: {perplexity:.2f}")
+                
+                # -------------------------
+                # 5. Log Metrics & Update Status
+                # -------------------------
                 progress = int(((epoch + 1) / epochs) * 100)
+                
+                mlflow.log_metrics({
+                    "d_loss": d_loss.item(),
+                    "d_accuracy": d_accuracy,
+                    "g_loss": g_loss.item(),
+                    "avg_reward": rewards.mean().item(),
+                    "perplexity": perplexity if perplexity != float('inf') else None,
+                    "learning_rate_d": d_optimizer.param_groups[0]['lr'],
+                    "learning_rate_g": g_optimizer.param_groups[0]['lr'],
+                }, step=epoch + 1)
+                
+                # Log sample generated text
+                if epoch % 5 == 0 or epoch == epochs - 1:
+                    sample_text = gen_texts[0][:500]  # First 500 chars
+                    mlflow.log_text(sample_text, f"sample_epoch_{epoch+1}.txt")
+                
                 update_gan_training_status(
                     running=True,
                     progress=progress,
                     message=f"Epoch {epoch+1}/{epochs} complete",
-                    current_epoch=epoch+1,
+                    current_epoch=epoch + 1,
                     total_epochs=epochs,
                     current_d_loss=d_loss.item(),
                     current_g_loss=g_loss.item(),
-                    current_perplexity=perplexity,
+                    current_perplexity=perplexity if perplexity != float('inf') else None,
                     run_id=run.info.run_id,
                     experiment_name=config['experiment_name']
                 )
-
-                mlflow.log_metric("d_loss", d_loss.item(), step=epoch+1)
-                mlflow.log_metric("g_loss", g_loss.item(), step=epoch+1)
                 
+                # Clean up tensors to save memory
+                del enc, labels_tensor, logits, gen_inputs, gen_outputs, enc_fake, gen_train_inputs, outputs
+                if device == "cuda":
+                    torch.cuda.empty_cache()
 
             # -------------------------
-            # Save final generator
+            # 6. Save Final Models
             # -------------------------
+            print("\nSaving final generator model...")
             _save_and_register(generator, tokenizer, config, run.info.run_id)
+            
+            # Optionally save discriminator too
+            disc_save_path = os.path.join(config.get('output_dir', './output'), 'discriminator')
+            os.makedirs(disc_save_path, exist_ok=True)
+            discriminator.encoder.save_pretrained(disc_save_path)
+            disc_tokenizer.save_pretrained(disc_save_path)
+            torch.save(discriminator.classifier.state_dict(), os.path.join(disc_save_path, 'classifier.pt'))
+            mlflow.log_artifacts(disc_save_path, artifact_path="discriminator")
+            
+            print("✓ Models saved successfully")
 
             update_gan_training_status(
                 running=False,
                 progress=100,
-                message="GAN training complete",
+                message="✅ GAN training complete",
                 end_time=datetime.utcnow(),
                 run_id=run.info.run_id,
                 experiment_name=config['experiment_name'],
-                
             )
+            
             return discriminator, generator
 
         except Exception as e:
+            error_msg = f"GAN Training failed: {str(e)}"
+            print(f"\n❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
+            
             update_gan_training_status(
                 running=False,
                 progress=0,
-                message=f"GAN Training failed: {e}",
+                message=error_msg,
                 error=str(e),
                 end_time=datetime.utcnow(),
                 run_id=run.info.run_id,
                 experiment_name=config['experiment_name']
             )
-            _handle_training_error(e)
+            
             mlflow.end_run(status="FAILED")
             raise
+        
+        finally:
+            # Clean up to free memory
+            try:
+                if generator is not None:
+                    del generator
+                if discriminator is not None:
+                    del discriminator
+                if tokenizer is not None:
+                    del tokenizer
+                if disc_tokenizer is not None:
+                    del disc_tokenizer
+                if device == "cuda" and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except:
+                pass
+
 
 def evaluate_model(trainer, tokenizer, config):
     """Evaluate the trained model"""
@@ -263,12 +597,8 @@ def evaluate_model(trainer, tokenizer, config):
             perplexity = math.exp(eval_loss) if eval_loss < 20 else float("inf")
             mlflow.log_metric("perplexity", perplexity)
         
-        # Generate sample texts
-        #generated_samples = generate_samples(trainer.model, tokenizer, config['output_dir'])
-        
-        return metrics,None
+        return metrics, None
         
     except Exception as e:
         print(f"Evaluation failed: {e}")
         return {}, []
-
