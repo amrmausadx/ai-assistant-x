@@ -30,6 +30,8 @@ Updates:
 
 15-02-2026: Refactor generator loss computation using REINFORCE
 
+15-02-2026: Refactor Preprocessing cleaning (ignore case and ignore punctuation) and allow user to choose data from huggingface datasets, no static dataset loaded
+
 ########################################################################
 ##Conda lines to run
 
