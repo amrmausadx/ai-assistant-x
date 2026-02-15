@@ -2,7 +2,7 @@
 Optimized preprocessing functions for text data
 """
 import re
-import pandas as pd
+#import pandas as pd
 from datasets import load_dataset
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -10,79 +10,51 @@ from utils.dependencies import get_spacy_model
 from typing import List, Tuple
 
 # ==================== COMPILED REGEX PATTERNS ====================
+# Only handle whitespace and specific platform noise
 URL_PATTERN = re.compile(r"http\S+|www\.\S+")
 GUTENBERG_START = re.compile(r"\*\*\* START OF.*?\*\*\*", re.DOTALL)
 GUTENBERG_END = re.compile(r"\*\*\* END OF.*?\*\*\*", re.DOTALL)
 
-# Keep only meaningful punctuation (no quotes)
-NON_ALPHANUM = re.compile(r"[^a-zA-Z0-9.,;:?!\-—–…\s]")
-
-NEWLINES = re.compile(r"[\r\n\t]+")
-MULTI_PUNCT = re.compile(r"([?.!]){2,}")
-WHITESPACE = re.compile(r"\s+")
-
+# Matches multiple newlines/tabs but preserves a single clean newline
+NEWLINES_NORM = re.compile(r"\n\s*\n") 
+# Matches multiple horizontal spaces
+WHITESPACE = re.compile(r"[ \t]+")
 
 # ==================== CORE CLEANING ====================
-def clean_text(text: str, lowercase: bool = True, min_length: int = 10) -> str:
+def clean_text(text: str, min_length: int = 10, remove_html: bool = True) -> str:
     """
-    Clean and normalize text for language model training.
-
-    Args:
-        text: Raw text input
-        lowercase: Whether to lowercase text
-        min_length: Minimum valid text length
-
-    Returns:
-        Cleaned text or empty string
+    Normalizes whitespace and optionally removes HTML tags.
     """
-
     if not isinstance(text, str) or not text.strip():
         return ""
 
     try:
-        # -------- Remove HTML --------
-        if "<" in text and ">" in text:
+        # 1. Remove HTML tags
+        if remove_html:
             text = BeautifulSoup(text, "html.parser").get_text()
-
-        # -------- Remove URLs --------
+        
+        # 2. Remove URLs and Metadata
         text = URL_PATTERN.sub("", text)
-
-        # -------- Remove Gutenberg headers/footers --------
         text = GUTENBERG_START.sub("", text)
         text = GUTENBERG_END.sub("", text)
 
-        # -------- Normalize characters --------
-        text = NON_ALPHANUM.sub(" ", text)
+        # 3. Normalize Whitespace 
+        # Convert multiple newlines into a single newline
+        text = NEWLINES_NORM.sub("\n", text)
+        # Convert multiple spaces/tabs into a single space
+        text = WHITESPACE.sub(" ", text)
+        
+        text = text.strip()
 
-        # -------- Normalize whitespace & punctuation --------
-        text = NEWLINES.sub(" ", text)
-        text = MULTI_PUNCT.sub(r"\1", text)
+        if len(text) < min_length:
+            return ""
 
-        # -------- Normalize contractions --------
-        # e.g., plum'd → plum d , god's → god s
-        text = re.sub(r"\b(\w+)'(\w+)\b", r"\1 \2", text)
-
-        # -------- Collapse repeated words --------
-        # e.g., alas, alas → alas | long, long → long
-        text = re.sub(r"\b(\w+)(,\s*\1\b)+", r"\1", text)
-
-        # -------- Reduce comma overload --------
-        text = re.sub(r"(,\s*){2,}", ", ", text)
-        text = re.sub(r",\s+(and|or|but)\b", r" \1", text)
-
-        # -------- Final whitespace cleanup --------
-        text = WHITESPACE.sub(" ", text).strip()
-
-        # -------- Optional lowercase --------
-        if lowercase:
-            text = text.lower()
-
-        return text if len(text) >= min_length else ""
+        return text
 
     except Exception as e:
         print(f"[clean_text] Warning: {e}")
-        return e 
-    
+        return ""
+        
 # ==================== DATASET LOADERS ====================
 def load_gutenberg(config: dict) -> Tuple[List[str], int]:
     """Load Project Gutenberg corpus with early stopping."""
@@ -97,7 +69,7 @@ def load_gutenberg(config: dict) -> Tuple[List[str], int]:
             if len(texts) >= limit:
                 break
             raw_text = gutenberg.raw(fileid)
-            cleaned = clean_text(raw_text, lowercase=config.get("lowercase", True))
+            cleaned = clean_text(raw_text)
             if cleaned:
                 texts.append(cleaned)
             total += 1
@@ -106,7 +78,7 @@ def load_gutenberg(config: dict) -> Tuple[List[str], int]:
         
     except Exception as e:
         print(f"❌ Failed to load Gutenberg corpus: {e}")
-        return e, 0
+        return [], 0
 
 
 def load_bookcorpus(config: dict) -> Tuple[List[str], int]:
@@ -119,13 +91,13 @@ def load_bookcorpus(config: dict) -> Tuple[List[str], int]:
         texts = []
         total = 0
         
-        for i, x in enumerate(dataset):
+        for x in dataset:
             if len(texts) >= limit:
                 break
             
             text = x.get("text", "")
             if text and text.strip():
-                cleaned = clean_text(text, lowercase=config.get("lowercase", True))
+                cleaned = clean_text(text)
                 if cleaned:
                     texts.append(cleaned)
                 total += 1
@@ -134,7 +106,7 @@ def load_bookcorpus(config: dict) -> Tuple[List[str], int]:
         
     except Exception as e:
         print(f"❌ Failed to load WikiText dataset: {e}")
-        return e, 0
+        return [], 0
 
 
 def load_poetry(config: dict) -> Tuple[List[str], int]:
@@ -146,13 +118,13 @@ def load_poetry(config: dict) -> Tuple[List[str], int]:
         texts = []
         total = 0
         
-        for i, x in enumerate(dataset):
+        for x in dataset:
             if len(texts) >= limit:
                 break
             
             text = x.get("text", "")
             if text and text.strip():
-                cleaned = clean_text(text, lowercase=config.get("lowercase", True))
+                cleaned = clean_text(text)
                 if cleaned:
                     texts.append(cleaned)
                 total += 1
@@ -161,88 +133,56 @@ def load_poetry(config: dict) -> Tuple[List[str], int]:
         
     except Exception as e:
         print(f"❌ Failed to load poetry dataset: {e}")
-        return e, 0
+        return [], 0
 
 
 def load_chosen_dataset(dataset_name: str, config: dict) -> Tuple[List[str], int]:
     """
-    Dynamically load a Hugging Face dataset with intelligent text extraction.
-    
-    Args:
-        dataset_name: Name of HuggingFace dataset
-        config: Configuration dict with 'limit_load' and 'lowercase'
-        
-    Returns:
-        Tuple of (cleaned_texts, total_count)
+    Loads dataset and wraps content in tags based on the 'tag' config.
     """
     try:
         limit = int(config.get("limit_load", 1000))
-        
-        # Load dataset
-        dataset = load_dataset(dataset_name, split="train", streaming=True)
-        
-        # Try to get column names (not always available in streaming)
+        dataset = None
+        columns = []
+        # Determine column names
         try:
-            if hasattr(dataset, 'column_names'):
-                columns = dataset.column_names
-            else:
-                # Get first sample to inspect columns
-                first_sample = next(iter(dataset))
-                columns = list(first_sample.keys())
-                dataset = load_dataset(dataset_name, split="train", streaming=True)  # Reset
+            # Peek at first sample to get columns
+            dataset_peek = load_dataset(dataset_name, split="train", streaming=True)
+            first_sample = next(iter(dataset_peek))
+            columns = list(first_sample.keys())
+            # Now load fresh dataset for actual processing
+            dataset = load_dataset(dataset_name, split="train", streaming=True) 
         except:
             columns = []
         
-        print(f"📊 Dataset '{dataset_name}' columns: {columns}")
+        # Logic to find the right column
+        text_columns = ["text", "content", "story", "article", "body", "poem"]
+        chosen_column = next((col for col in text_columns if col in columns), columns[0] if columns else None)
         
-        # Find text column
-        text_columns = [
-            "text", "content", "story", "article", "body", "poem",
-            "Text", "Content", "Story", "Article", "Body", "Poem"
-        ]
-        
-        chosen_column = None
-        for col in text_columns:
-            if col in columns:
-                chosen_column = col
-                break
-        
-        if chosen_column is None:
-            # Try first string column as fallback
-            for col in columns:
-                chosen_column = col
-                break
-        
-        if chosen_column is None:
-            raise ValueError(f"No suitable text column found in '{dataset_name}'")
-        
-        print(f"✅ Using column: '{chosen_column}'")
-        
-        # Load and clean texts with early stopping
+        if not chosen_column:
+            raise ValueError(f"No columns found in '{dataset_name}'")
+
+        print(f"✅ Loading '{dataset_name}' using column: '{chosen_column}'")
+
         texts = []
         total = 0
         
-        for i, x in enumerate(dataset):
+        for x in dataset:
             if len(texts) >= limit:
                 break
             
-            try:
-                text = x.get(chosen_column, "")
-                if text and isinstance(text, str) and text.strip():
-                    cleaned = clean_text(text, lowercase=config.get("lowercase", True))
-                    if cleaned:
-                        texts.append(cleaned)
+            raw_val = x.get(chosen_column, "")
+            if raw_val and isinstance(raw_val, str):
+                cleaned = clean_text(raw_val)
+                if cleaned:
+                    texts.append(cleaned)
                     total += 1
-            except Exception as e:
-                print(f"⚠️ Skipping sample {i}: {e}")
-                continue
         
         return texts, total
         
     except Exception as e:
         print(f"❌ Failed to load dataset '{dataset_name}': {e}")
         return [], 0
-
 
 # ==================== ADVANCED FEATURES ====================
 def deduplicate_texts(texts: List[str]) -> List[str]:
@@ -284,13 +224,12 @@ def create_preprocessing_report() -> str:
 Data Preprocessing Report
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-CLEANING STEPS APPLIED:
+CLEANING STEPS APPLIED:  
   ✓ Remove HTML tags
   ✓ Remove URLs
   ✓ Remove Gutenberg metadata
   ✓ Normalize whitespace and punctuation
   ✓ Filter minimum length 
   ✓ Deduplication
-  ✓ Lowercase normalization
 """
     return report
