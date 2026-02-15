@@ -36,20 +36,20 @@ def run_preprocessing_pipeline(config,opt=None):
             mlflow.log_param("pipeline", "text_cleaning_and_tokenization")
             
             # Load datasets with progress updates
-            update_preprocessing_status(progress=10, message='Loading Gutenberg texts...')
-            gutenberg_texts,Gun_len = load_gutenberg(config)
-            mlflow.log_metric("gutenberg_count", Gun_len)
+            #update_preprocessing_status(progress=10, message='Loading Gutenberg texts...')
+            #gutenberg_texts,Gun_len = load_gutenberg(config)
+            #mlflow.log_metric("gutenberg_count", Gun_len)
 
-            update_preprocessing_status(progress=30, message='Loading BookCorpus texts...')
-            bookcorpus_texts,book_len = load_bookcorpus(config)
-            mlflow.log_metric("bookcorpus_count", book_len)
+            #update_preprocessing_status(progress=30, message='Loading BookCorpus texts...')
+            #bookcorpus_texts,book_len = load_bookcorpus(config)
+            #mlflow.log_metric("bookcorpus_count", book_len)
             
             
-            update_preprocessing_status(progress=50, message='Loading Poetry texts...')
-            poetry_texts,poetry_len = load_poetry(config)
-            mlflow.log_metric("poetry_count", poetry_len)
+            #update_preprocessing_status(progress=50, message='Loading Poetry texts...')
+            #poetry_texts,poetry_len = load_poetry(config)
+            #mlflow.log_metric("poetry_count", poetry_len)
 
-            update_preprocessing_status(progress=60, message='Loading selected datasets '+str(config['selected_datasets'])+'...')
+            update_preprocessing_status(progress=30, message='Loading selected datasets '+str(config['selected_datasets'])+'...')
             
             # Load additional datasets if specified
             selected_datasets = config.get("selected_datasets", [])
