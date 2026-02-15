@@ -28,6 +28,7 @@ Updates:
 
 15-02-2026: Fix GAN and remove qwen coder in generator
 
+15-02-2026: Refactor generator loss computation using REINFORCE
 
 ########################################################################
 ##Conda lines to run
