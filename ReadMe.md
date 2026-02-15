@@ -26,6 +26,8 @@ Updates:
 
 10-02-2026: Edit Qwen Coder and enhance pipeline.py functionality in generation page
 
+15-02-2026: Fix GAN and remove qwen coder in generator
+
 
 ########################################################################
 ##Conda lines to run
