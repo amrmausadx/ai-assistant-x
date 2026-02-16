@@ -188,39 +188,6 @@ def load_chosen_dataset(dataset_name: str, config: dict) -> Tuple[List[str], int
         print(f"❌ Failed to load dataset '{dataset_name}': {e}")
         return [], 0
 
-# ==================== ADVANCED FEATURES ====================
-def deduplicate_texts(texts: List[str]) -> List[str]:
-    """Remove duplicate texts while preserving order."""
-    seen = set()
-    unique = []
-    for text in texts:
-        text_hash = hash(text[:500])  # Hash first 500 chars for speed
-        if text_hash not in seen:
-            seen.add(text_hash)
-            unique.append(text)
-    return unique
-
-
-def tokenize_sentences(text: str) -> List[str]:
-    """Split into sentences using SpaCy with fallback."""
-    nlp = get_spacy_model()
-    
-    if nlp is None:
-        # Fallback to regex
-        sentences = re.split(r'[.!?]+\s+', text)
-        return [s.strip() for s in sentences if s.strip() and len(s) > 10]
-    
-    try:
-        nlp.max_length = 5_000_000
-        doc = nlp(text)
-        return [sent.text.strip() for sent in doc.sents 
-                if sent.text.strip() and len(sent.text.strip()) > 10]
-    except:
-        # Fallback on error
-        sentences = re.split(r'[.!?]+\s+', text)
-        return [s.strip() for s in sentences if s.strip() and len(s) > 10]
-
-
 def create_preprocessing_report() -> str:
     """Generate detailed preprocessing report."""
     report = f"""
