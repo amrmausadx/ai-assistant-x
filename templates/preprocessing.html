@@ -156,6 +156,10 @@
         document.querySelectorAll('input[name="datasets"]:checked').forEach(checkbox => {
             selectedDatasets.push(checkbox.value);
         });
+        if (selectedDatasets.length === 0) {
+            alert('Please select at least one dataset');
+            return;
+        }
 
         // Define config from input field
         const config = {experiment_name: document.getElementById('experiment_name').value,
