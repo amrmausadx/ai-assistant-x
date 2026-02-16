@@ -72,7 +72,18 @@
      <input type="text" id="experiment_name" name="experiment_name" value="creative-writing" required>
 </div>
 <div class="form-group">
-    <a href="/static/datasets.txt">Download Preprocessed Dataset</a>
+    <h3>Download Generated Files:</h3>
+    <ul style="list-style: none; padding-left: 0; margin-top: 10px;">
+        <li style="margin-bottom: 8px;">
+            <a href="/static/datasets.txt">📄 Preprocessed Dataset</a>
+        </li>
+        <li style="margin-bottom: 8px;">
+            <a href="/static/evaluation_report.txt">📊 Evaluation Report</a>
+        </li>
+        <li style="margin-bottom: 8px;">
+            <a href="/static/length_distribution.png">📈 Length Distribution Plot</a>
+        </li>
+    </ul>
 </div>
 <button id="startBtn" class="btn" onclick="startPreprocessing()">
     🚀 Start Preprocessing
