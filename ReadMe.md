@@ -32,6 +32,9 @@ Updates:
 
 15-02-2026: Refactor Preprocessing cleaning (ignore case and ignore punctuation) and allow user to choose data from huggingface datasets, no static dataset loaded
 
+16-02-2026: Refactor dataset loading and progress updates
+
+
 ########################################################################
 ##Conda lines to run
 
