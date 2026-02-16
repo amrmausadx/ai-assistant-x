@@ -158,7 +158,11 @@ def load_chosen_dataset(dataset_name: str, config: dict) -> Tuple[List[str], int
         # Logic to find the right column
         text_columns = ["text", "content", "story", "article", "body", "poem"]
         chosen_column = next((col for col in text_columns if col in columns), columns[0] if columns else None)
-        
+        if not chosen_column:
+            print(f"⚠️ No text column found in '{dataset_name}'. Available: {columns}")
+            print(f"   Trying first column as fallback: {columns[0] if columns else 'None'}")
+            chosen_column = columns[0] if columns else None
+    
         if not chosen_column:
             raise ValueError(f"No columns found in '{dataset_name}'")
 
