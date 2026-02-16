@@ -8,7 +8,7 @@ This project focuses on fine-tuning a GPT-2 style causal language model using ra
 | :----- | :----- |
 | **Dataset** | Raw stories & poems (unlabeled) |
 | **Source** | Hugging Face datasets |
-| **Model** | GPT-2 style causal language model |
+| **Model** | Various LLMs |
 | **Objective** | Improve training stability, reduce perplexity, and enhance story/poem generation quality |
 
 ## Overall Timeline Strategy
