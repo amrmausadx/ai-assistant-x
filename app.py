@@ -55,7 +55,8 @@ def gantraining():
 def download_dataset():
     try:
         #return send_file('creative_writing_dataset.csv', as_attachment=True)
-        return send_file('static\dataset.txt', as_attachment=True)
+        file_path = os.path.join(app.root_path, 'static', 'datasets.txt')
+        return send_file(file_path, as_attachment=True, download_name='datasets.txt')
     except FileNotFoundError:
         return jsonify({'error': 'Dataset file not found. Please run preprocessing first.'}), 404
 
