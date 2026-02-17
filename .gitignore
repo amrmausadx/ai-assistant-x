@@ -69,3 +69,10 @@ Thumbs.db
 # Static generated files
 static/datasets.txt
 static/*.csv
+
+# compressed files
+*.zip
+*.tar
+*.gz
+*.bz2
+*.7z

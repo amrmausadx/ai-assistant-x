@@ -10,7 +10,7 @@ import numpy as np
 from datetime import datetime
 
 #from seaborn import load_dataset
-from core_pkg import (
+from preprocessing.core import (
     load_chosen_dataset,
     load_gutenberg, 
     load_bookcorpus, 
