@@ -34,6 +34,8 @@ Updates:
 
 16-02-2026: Refactor dataset loading and progress updates
 
+17-02-2026: Fix preprocessing html enable and disable buttons
+
 
 ########################################################################
 ##Conda lines to run
