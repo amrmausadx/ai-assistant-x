@@ -37,6 +37,9 @@ Updates:
 17-02-2026: Fix preprocessing html enable and disable buttons
 
 02-03-2026: Refactor form layout in preprocessing.html
+
+03-03-2026: Add matplotlib import and set backend to Agg in preprocessing pipeline 
+
 ########################################################################
 ##Conda lines to run
 
