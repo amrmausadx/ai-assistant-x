@@ -40,6 +40,9 @@ Updates:
 
 03-03-2026: Add matplotlib import and set backend to Agg in preprocessing pipeline 
 
+04-03-2026: Change output format for filtered dataset in pipeline
+
+
 ########################################################################
 ##Conda lines to run
 
