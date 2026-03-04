@@ -280,8 +280,16 @@ def run_preprocessing_pipeline(config, opt=None):
             # Save filtered dataset
             output_file = os.path.join("static", "datasets.txt")           
             
+            separator = "\n<|endoftext|>\n"
+
+            clean_texts = [text.strip() for text in filtered_texts if isinstance(text, str) and text.strip()]
+
             with open(output_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(text.strip() for text in filtered_texts if isinstance(text, str) and text.strip()))
+                f.write(separator.join(clean_texts))
+                f.write("\n<|endoftext|>")  # ensure final document ends properly
+    
+            #with open(output_file, "w", encoding="utf-8") as f:
+            #    f.write("\n".join(text.strip() for text in filtered_texts if isinstance(text, str) and text.strip()))
             
             mlflow.log_artifact(output_file)
             
