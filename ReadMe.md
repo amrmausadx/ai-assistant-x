@@ -42,6 +42,7 @@ Updates:
 
 04-03-2026: Change output format for filtered dataset in pipeline
 
+08-03-2026: Fix errors in preprocessing display page and GAN Training because error element 0 of tensors does not require grad and does not have a grad_fn
 
 ########################################################################
 ##Conda lines to run
