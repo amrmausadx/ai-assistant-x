@@ -10,6 +10,8 @@ requirements.txt - All project dependencies
 
 README.md - Comprehensive documentation
 
+
+
 Utility Modules:
 
 ################
@@ -19,6 +21,7 @@ utils/dependencies.py - Dependency checking and management
 utils/status.py - Centralized status tracking for all processes
 
 
+
 Preprocessing Module:
 
 ####################
@@ -26,6 +29,7 @@ Preprocessing Module:
 preprocessing/core.py - Core text processing functions
 
 preprocessing/pipeline.py - Complete preprocessing pipeline
+
 
 
 Training Module:
@@ -58,6 +62,8 @@ routes/gantraining.py - GAN Training API endpoints
 routes/status.py - Status monitoring endpoints
 
 routes/generating.py - Generating API endpoints
+
+
 
 Templates:
 
