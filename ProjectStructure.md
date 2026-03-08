@@ -1,18 +1,28 @@
 📁 Complete Project Structure:
 
 Core Application Files:
+
 #######################
+
 app.py - Main Flask application with route registration
+
 requirements.txt - All project dependencies
+
 README.md - Comprehensive documentation
 
 Utility Modules:
+
 ################
+
 utils/dependencies.py - Dependency checking and management
+
 utils/status.py - Centralized status tracking for all processes
 
+
 Preprocessing Module:
+
 ####################
+
 preprocessing/core.py - Core text processing functions
 preprocessing/pipeline.py - Complete preprocessing pipeline
 
