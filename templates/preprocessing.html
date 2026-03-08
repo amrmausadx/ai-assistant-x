@@ -39,8 +39,6 @@
     <h2>🎯 About Data Preprocessing</h2>
     <p>This step processes text data from multiple sources, cleans it, and prepares it for model training. The preprocessing pipeline handles HTML removal, text normalization, and sentence tokenization.</p>
 </div>
-
-<div class="grid">
 <!--<div class="card">
     
         <!--<h3>📖 Gutenberg Corpus</h3>
@@ -64,18 +62,21 @@
         <button id="loadDatasetsBtn" class="btn" onclick="loadAvailableDatasets()">Load Datasets</button>
     </div>
 </div>
+<br/>
 <div class="form-row">
     <div class="form-group">
          <label for="limit">limit to load:</label><!--input number limit to 3000  record-->
         <input type="number" id="limit_load" name="limit_load" value="100" step="100" min="100" required>
     </div>
 </div>
+<br/>
 <div class="form-row">
     <div class="form-group">
          <label for="experiment_name">MLflow Experiment Name:</label>
          <input type="text" id="experiment_name" name="experiment_name" value="creative-writing" required>
     </div>
 </div>
+<br/>
 <div class="form-row">
     <div class="form-group">
         <h3>Download Generated Files:</h3>
@@ -92,11 +93,13 @@
         </ul>
     </div>
 </div>
+<br/>
 <div class="form-row">
     <button id="startBtn" class="btn" onclick="startPreprocessing()">
         🚀 Start Preprocessing
     </button>
 </div>
+<br/>
 <div id="progressContainer" class="progress-container">
     <h3>Processing Status</h3>
     <div class="progress-bar">
