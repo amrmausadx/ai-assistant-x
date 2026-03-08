@@ -135,123 +135,73 @@ def calculate_perplexity_on_texts(model, tokenizer, texts, device):
     return perplexity
 
 
-def compute_generator_loss_reinforce(generator, tokenizer, disc_tokenizer, discriminator, 
+def compute_generator_loss_reinforce(generator, tokenizer, disc_tokenizer, discriminator,
                                       prompts, device, temperature=0.8):
-    """
-    Compute generator loss using REINFORCE policy gradient.
-    
-    REINFORCE formula: L = -E[R * log P(a|s)]
-    Where:
-    - R is the reward from discriminator
-    - P(a|s) is the probability of generated action (token) given state
-    
-    Since we can't get gradients through generate(), we:
-    1. Generate samples (no grad)
-    2. Compute their log probabilities (with grad)
-    3. Get rewards from discriminator (no grad)
-    4. Compute policy gradient loss
-    """
     generator.train()
     discriminator.eval()
-    
-    # Step 1: Generate samples (no gradients)
+
+    # Step 1: Generate samples (no grad)
     gen_inputs = tokenizer(
-        prompts,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=128
+        prompts, return_tensors="pt", padding=True,
+        truncation=True, max_length=128
     )
     gen_inputs = {k: v.to(device) for k, v in gen_inputs.items()}
-    
+
     with torch.no_grad():
         gen_outputs = generator.generate(
             **gen_inputs,
-            max_length=200,
-            min_length=50,
-            do_sample=True,
-            temperature=temperature,
-            top_k=50,
-            top_p=0.95,
+            max_length=200, min_length=50,
+            do_sample=True, temperature=temperature,
+            top_k=50, top_p=0.95,
             num_return_sequences=1,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
             repetition_penalty=1.2,
             no_repeat_ngram_size=3,
         )
-    
-    # Decode generated texts
+
     gen_texts = [tokenizer.decode(g, skip_special_tokens=True) for g in gen_outputs]
-    
-    # Step 2: Get discriminator rewards (no gradients)
+
+    # Step 2: Get discriminator rewards (no grad)
     with torch.no_grad():
         disc_inputs = disc_tokenizer(
-            gen_texts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=512
+            gen_texts, return_tensors="pt", padding=True,
+            truncation=True, max_length=512
         )
         disc_inputs = {k: v.to(device) for k, v in disc_inputs.items()}
-        
         d_logits = discriminator(disc_inputs["input_ids"], attention_mask=disc_inputs["attention_mask"])
-        d_probs = F.softmax(d_logits, dim=-1)
-        rewards = d_probs[:, 1]  # Probability of being "real"
-    
-    # Step 3: Compute log probabilities of generated sequences (WITH gradients)
-    # Re-tokenize the generated text to get inputs for computing log probs
-    gen_text_inputs = tokenizer(
-        gen_texts,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=512
-    )
-    gen_text_inputs = {k: v.to(device) for k, v in gen_text_inputs.items()}
-    
-    # Forward pass through generator to get logits
-    outputs = generator(
-        input_ids=gen_text_inputs["input_ids"],
-        attention_mask=gen_text_inputs["attention_mask"]
-    )
+        rewards = F.softmax(d_logits, dim=-1)[:, 1]
+
+    # Step 3: Compute log probs using original gen_outputs (no re-tokenization!)
+    outputs = generator(input_ids=gen_outputs)
     logits = outputs.logits
-    
-    # Compute log probabilities for each token
-    # Shift logits and labels for next-token prediction
+
     shift_logits = logits[..., :-1, :].contiguous()
-    shift_labels = gen_text_inputs["input_ids"][..., 1:].contiguous()
-    
-    # Compute log probabilities
+    shift_labels = gen_outputs[..., 1:].contiguous()
+
     log_probs = F.log_softmax(shift_logits, dim=-1)
-    
-    # Gather log probs of actual tokens
-    # shape: (batch_size, seq_len - 1)
     token_log_probs = log_probs.gather(
-        dim=-1,
-        index=shift_labels.unsqueeze(-1)
+        dim=-1, index=shift_labels.unsqueeze(-1)
     ).squeeze(-1)
-    
-    # Mask out padding tokens
-    if gen_text_inputs["attention_mask"] is not None:
-        mask = gen_text_inputs["attention_mask"][..., 1:].float()
-        token_log_probs = token_log_probs * mask
-        seq_lengths = mask.sum(dim=1)
-    else:
-        seq_lengths = torch.full((token_log_probs.size(0),), token_log_probs.size(1), 
-                                 dtype=torch.float, device=device)
-    
-    # Average log prob per sequence
-    avg_log_probs = token_log_probs.sum(dim=1) / (seq_lengths + 1e-8)
-    
-    # Step 4: Compute REINFORCE loss
-    # We want to maximize reward, so minimize negative reward
-    # Baseline: subtract mean reward to reduce variance
+
+    # Mask padding
+    pad_id = tokenizer.pad_token_id
+    non_pad_mask = (shift_labels != pad_id).float()
+    token_log_probs = token_log_probs * non_pad_mask
+    seq_lengths = non_pad_mask.sum(dim=1).clamp(min=1)
+    avg_log_probs = token_log_probs.sum(dim=1) / seq_lengths
+
+    # Step 4: REINFORCE loss with variance normalization
     baseline = rewards.mean().detach()
     advantages = rewards - baseline
-    
-    # Policy gradient loss: -E[advantage * log_prob]
+
+    # Guard: if no variance, skip generator update
+    if advantages.abs().max() < 1e-8:
+        return torch.tensor(0.0, requires_grad=True, device=device), rewards.mean().item(), gen_texts
+
+    advantages = (advantages / (advantages.std() + 1e-8)).detach()
     policy_loss = -(advantages * avg_log_probs).mean()
-    
+
     return policy_loss, rewards.mean().item(), gen_texts
 
 
