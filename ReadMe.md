@@ -46,6 +46,8 @@ Updates:
 
 09-03-2026: Show validate loss and perplexity in training
 
+10-03-2026: Integrate early stopping and adjust training parameters
+
 ########################################################################
 ##Conda lines to run
 
