@@ -19,7 +19,7 @@ from transformers import (
     BitsAndBytesConfig,
 )
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-
+from transformers import EarlyStoppingCallback
 from .core import MLflowCallback, evaluate_model, prepare_tokenization_function
 from utils.status import update_training_status
 from utils.dependencies import check_dependencies
@@ -275,15 +275,15 @@ def _run_baseline_training(config):
                 eval_strategy="steps",  # FIXED: Changed from eval_steps parameter
                 eval_steps=config.get("eval_steps", 50),
                 save_strategy="steps",
-                save_steps=config.get("save_steps", 100),
+                save_steps=config.get("save_steps", 50),
                 logging_first_step=True,
                 logging_strategy="steps",
                 logging_steps=config.get("logging_steps", 100),
                 learning_rate=config["learning_rate"],
                 weight_decay=0.01,
-                warmup_steps=min(
-                    100, dataset_dict["train"].num_rows // (config["train_batch_size"] * 4)
-                ),
+                #warmup_steps=min(100, dataset_dict["train"].num_rows // (config["train_batch_size"] * 4)),
+                lr_scheduler_type=config.get("lr_scheduler_type", "cosine"),
+                warmup_ratio=config.get("warmup_ratio", 0.1),
                 fp16=config.get("fp16", False) and use_cuda,  # FIXED: Only use fp16 on CUDA
                 fp16_full_eval=False,
                 bf16=use_bf16,
@@ -294,6 +294,10 @@ def _run_baseline_training(config):
                 save_total_limit=2,
                 report_to="none",
                 remove_unused_columns=False,
+                load_best_model_at_end=True,
+                metric_for_best_model="eval_loss",
+                greater_is_better=False,
+
             )
             if prefetch_factor is not None:
                 training_kwargs["dataloader_prefetch_factor"] = prefetch_factor
@@ -307,7 +311,10 @@ def _run_baseline_training(config):
                 train_dataset=tokenized_train,
                 eval_dataset=tokenized_eval,
                 data_collator=data_collator,
-                callbacks=[MLflowCallback(run_id=run.info.run_id)],
+                #callbacks=[MLflowCallback(run_id=run.info.run_id)],
+                callbacks=[MLflowCallback(run_id=run.info.run_id),
+                           EarlyStoppingCallback(early_stopping_patience=config.get("early_stopping_patience", 2),
+                                                 early_stopping_threshold=config.get("early_stopping_threshold", 0.01))],
             )
 
             # train
