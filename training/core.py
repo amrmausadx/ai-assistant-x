@@ -52,6 +52,7 @@ class MLflowCallback(TrainerCallback):
                 mlflow.log_metric("eval_loss", logs['eval_loss'], step=state.global_step)
                 # FIXED: Only log eval perplexity if it's a valid number
                 eval_perplexity = math.exp(logs["eval_loss"]) if logs['eval_loss'] < 20 else None
+                update_training_status(current_eval_loss=logs['eval_loss'],current_eval_perplexity=eval_perplexity)
                 if eval_perplexity is not None:
                     mlflow.log_metric("eval_perplexity", eval_perplexity, step=state.global_step)
             
