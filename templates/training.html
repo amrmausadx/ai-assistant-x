@@ -176,6 +176,8 @@
         <p><strong>Current Epoch:</strong> <span id="currentEpoch">-</span> / <span id="totalEpochs">-</span></p>
         <p><strong>Current Loss:</strong> <span id="currentLoss">-</span></p>
         <p><strong>Current Perplexity:</strong> <span id="currentPerplexity">-</span></p>
+        <p><strong>Validation Loss:</strong> <span id="currentEvalLoss">-</span></p>
+        <p><strong>Validation Perplexity:</strong> <span id="currentEvalPerplexity">-</span></p>
     </div>
 </div>
 
@@ -300,6 +302,8 @@
                 document.getElementById('totalEpochs').textContent = data.total_epochs || '-';
                 document.getElementById('currentLoss').textContent = data.current_loss ? data.current_loss.toFixed(4) : '-';
                 document.getElementById('currentPerplexity').textContent = data.current_perplexity ? data.current_perplexity.toFixed(4) : '-';
+                document.getElementById('currentEvalLoss').textContent = data.current_eval_loss ? data.current_eval_loss.toFixed(4) : '-';
+                document.getElementById('currentEvalPerplexity').textContent = data.current_eval_perplexity ? data.current_eval_perplexity.toFixed(4) : '-';
 
                 if (hardwareFlag && (typeof data.device_type !== 'undefined' || data.precision || typeof data.quantize !== 'undefined')) {
                     hardwareFlag.style.display = 'flex';
