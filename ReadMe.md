@@ -44,6 +44,8 @@ Updates:
 
 08-03-2026: Fix errors in preprocessing display page and GAN Training because error element 0 of tensors does not require grad and does not have a grad_fn
 
+09-03-2026: Show validate loss and perplexity in training
+
 ########################################################################
 ##Conda lines to run
 
