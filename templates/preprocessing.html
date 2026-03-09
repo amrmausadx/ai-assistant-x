@@ -54,52 +54,49 @@
     </div>
     
 </div>-->
-<div class="form-row">
-    <div class="form-group">
-        <h3>Select Datasets from Hugging Face:</h3>
-        <input type="text" id="search_tags" value="search=poetry+english&tags=us&limit=10&sort=downloads" style="width: 100%; margin-bottom: 10px;">
-        <div class="dataset-options"></div>
-        <button id="loadDatasetsBtn" class="btn" onclick="loadAvailableDatasets()">Load Datasets</button>
+<form>
+    <div class="form-row">
+        <div class="form-group">
+            <h3>Select Datasets from Hugging Face:</h3>
+            <input type="text" id="search_tags" value="search=poetry+english&tags=us&limit=10&sort=downloads" style="width: 100%; margin-bottom: 10px;">
+            <div class="dataset-options"></div>
+            <button id="loadDatasetsBtn" class="btn" onclick="loadAvailableDatasets()">Load Datasets</button>
+        </div>
     </div>
-</div>
-<br/>
-<div class="form-row">
-    <div class="form-group">
-         <label for="limit">limit to load:</label><!--input number limit to 3000  record-->
-        <input type="number" id="limit_load" name="limit_load" value="100" step="100" min="100" required>
+    <div class="form-row">
+        <div class="form-group">
+             <label for="limit">limit to load:</label><!--input number limit to 3000  record-->
+            <input type="number" id="limit_load" name="limit_load" value="100" step="100" min="100" required>
+        </div>
     </div>
-</div>
-<br/>
-<div class="form-row">
-    <div class="form-group">
-         <label for="experiment_name">MLflow Experiment Name:</label>
-         <input type="text" id="experiment_name" name="experiment_name" value="creative-writing" required>
+    <div class="form-row">
+        <div class="form-group">
+             <label for="experiment_name">MLflow Experiment Name:</label>
+             <input type="text" id="experiment_name" name="experiment_name" value="creative-writing" required>
+        </div>
     </div>
-</div>
-<br/>
-<div class="form-row">
-    <div class="form-group">
-        <h3>Download Generated Files:</h3>
-        <ul style="list-style: none; padding-left: 0; margin-top: 10px;">
-            <li style="margin-bottom: 8px;">
-                <a href="/static/datasets.txt">📄 Preprocessed Dataset</a>
-            </li>
-            <li style="margin-bottom: 8px;">
-                <a href="/static/evaluation_report.txt">📊 Evaluation Report</a>
-            </li>
-            <li style="margin-bottom: 8px;">
-                <a href="/static/length_distribution.png">📈 Length Distribution Plot</a>
-            </li>
-        </ul>
+    <div class="form-row">
+        <div class="form-group">
+            <h3>Download Generated Files:</h3>
+            <ul style="list-style: none; padding-left: 0; margin-top: 10px;">
+                <li style="margin-bottom: 8px;">
+                    <a href="/static/datasets.txt">📄 Preprocessed Dataset</a>
+                </li>
+                <li style="margin-bottom: 8px;">
+                    <a href="/static/evaluation_report.txt">📊 Evaluation Report</a>
+                </li>
+                <li style="margin-bottom: 8px;">
+                    <a href="/static/length_distribution.png">📈 Length Distribution Plot</a>
+                </li>
+            </ul>
+        </div>
     </div>
-</div>
-<br/>
-<div class="form-row">
-    <button id="startBtn" class="btn" onclick="startPreprocessing()">
-        🚀 Start Preprocessing
-    </button>
-</div>
-<br/>
+    <div class="form-row">
+        <button id="startBtn" class="btn" onclick="startPreprocessing()">
+            🚀 Start Preprocessing
+        </button>
+    </div>
+</form>
 <div id="progressContainer" class="progress-container">
     <h3>Processing Status</h3>
     <div class="progress-bar">
