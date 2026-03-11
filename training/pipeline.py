@@ -87,8 +87,8 @@ def _run_baseline_training(config):
         use_lora = True
 
         # Set LoRA defaults (used for both quantized and non-quantized)
-        config.setdefault("lora_r", 16)
-        config.setdefault("lora_alpha", 32)
+        config.setdefault("lora_r", 64)
+        config.setdefault("lora_alpha", 128)
         config.setdefault("lora_dropout", 0.05)
         config.setdefault("lora_bias", "none")
         config.setdefault("lora_target_modules", ["c_attn", "c_proj", "c_fc"])
@@ -210,8 +210,8 @@ def _run_baseline_training(config):
                 print(f"Auto-detected LoRA target modules: {target_modules}")
             
             lora_config = LoraConfig(
-                r=config.get("lora_r", 16),
-                lora_alpha=config.get("lora_alpha", 32),
+                r=config.get("lora_r", 64),
+                lora_alpha=config.get("lora_alpha", 128),
                 lora_dropout=config.get("lora_dropout", 0.05),
                 bias=config.get("lora_bias", "none"),
                 task_type="CAUSAL_LM",
@@ -272,13 +272,17 @@ def _run_baseline_training(config):
                 per_device_eval_batch_size=config["train_batch_size"],
                 gradient_accumulation_steps=config.get("gradient_accumulation_steps", 1),
                 do_eval=True,
-                eval_strategy="steps",  # FIXED: Changed from eval_steps parameter
-                eval_steps=config.get("eval_steps", 50),
-                save_strategy="steps",
-                save_steps=config.get("save_steps", 50),
-                logging_first_step=True,
+                eval_strategy="epoch",
+                save_strategy="epoch",
                 logging_strategy="steps",
-                logging_steps=config.get("logging_steps", 100),
+                logging_steps=config.get("logging_steps", 10),
+                #eval_strategy="steps",  # FIXED: Changed from eval_steps parameter
+                #eval_steps=config.get("eval_steps", 50),
+                #save_strategy="steps",
+                #save_steps=config.get("save_steps", 50),
+                logging_first_step=True,
+                #logging_strategy="steps",
+                #logging_steps=config.get("logging_steps", 100),
                 learning_rate=config["learning_rate"],
                 weight_decay=0.01,
                 #warmup_steps=min(100, dataset_dict["train"].num_rows // (config["train_batch_size"] * 4)),
