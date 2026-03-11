@@ -48,6 +48,9 @@ Updates:
 
 10-03-2026: Integrate early stopping and adjust training parameters
 
+11-03-2026: Modify LoRA settings and evaluation strategy
+
+
 ########################################################################
 ##Conda lines to run
 
