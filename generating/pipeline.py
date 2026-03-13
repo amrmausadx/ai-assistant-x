@@ -5,28 +5,49 @@ import torch
 import traceback
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed, BitsAndBytesConfig
 from utils.status import update_generation_status, get_generation_status
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
-from rouge_score import rouge_scorer
+#from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+#from rouge_score import rouge_scorer
 from datetime import datetime
 
-def build_creative_prompt(user_prompt: str, style: str, use_instruction: bool = True) -> str:
-    """
-    Build contextual prompts based on style.
-    For fine-tuned models, you may want to skip instructions (use_instruction=False)
-    """
+def build_creative_prompt(user_prompt: str, style: str, num_paragraphs: int = 2, num_characters: int = None,
+                           theme: str = None, use_instruction: bool = True) -> str:
+    
     if not use_instruction:
         return user_prompt.strip()
     
-    style_instructions = {
-        "creative": "Write engaging, descriptive text with vivid imagery and smooth flow.\n\n",
-        "story": "Continue this story naturally, maintaining the style and tone:\n\n",
-        "poem": "Write a moving poem with rhythm and emotion.\n\n"
-        #"code": "Generate clean, efficient, well-documented code for the following task:\n\n"
-    }
-    style = style.lower().strip() if style else "creative"
-    instruction = style_instructions.get(style, "")
-    return instruction + user_prompt.strip() if user_prompt else instruction + "Begin:"
-
+    # Build structured constraint block
+    constraints = []
+    if num_paragraphs:
+        constraints.append(f"- Write exactly {num_paragraphs} paragraphs")
+    if num_characters:
+        constraints.append(f"- Include exactly {num_characters} characters")
+    if theme:
+        constraints.append(f"- Central theme: {theme}")
+    
+    constraint_block = "\n".join(constraints)
+    
+    style_templates = {
+        "story": f"""Write a coherent, engaging short story with the following requirements:
+                {constraint_block}
+                The story must begin with this exact line:
+                \"{user_prompt.strip()}\"
+                Story:""",
+        "poem": f"""Write a moving poem with the following requirements:
+                {constraint_block}
+                Opening line:
+                \"{user_prompt.strip()}\" 
+                Poem:""",
+                "creative": f"""Write creative text with the following requirements:
+                {constraint_block}
+                Starting with:
+                \"{user_prompt.strip()}\"
+                
+        Text:"""
+            }
+    
+    style = style.lower().strip() if style else "story"
+    return style_templates.get(style, style_templates["creative"])
+                               
 def calculate_perplexity(model, tokenizer, text: str, device: str = "cpu") -> float:
     """
     Calculate actual perplexity of generated text using the model's loss.
@@ -86,7 +107,11 @@ def run_generation(config: dict):
         
         # For fine-tuned models on specific texts, skip instruction prefix
         is_finetuned = model_name == "./gpt2_finetuned/"
-        enhanced_prompt = build_creative_prompt(prompt, style, use_instruction=not is_finetuned)
+        enhanced_prompt = build_creative_prompt(prompt, style,
+                                                num_paragraphs=2,
+                                                num_characters=None,
+                                                theme=None,
+                                                use_instruction=not is_finetuned)
         
         run_name = "text_generation"
         
@@ -142,20 +167,17 @@ def run_generation(config: dict):
             quality_scores = calculate_text_quality(text, prompt)
             
             # Log metrics
-            duration = time.time() - run.info.start_time / 1000
-            mlflow.log_metric("generation_time_seconds", duration)
-            mlflow.log_metric("output_length_chars", len(text))
-            mlflow.log_metric("output_length_words", len(text.split()))
-            mlflow.log_metric("perplexity", perplexity)
-            mlflow.log_metric("bleu_score", quality_scores.get("bleu_score", 0.0))
-            mlflow.log_metric("rouge1_fmeasure", quality_scores.get("rouge1_fmeasure", 0.0))
-            mlflow.log_metric("rouge2_fmeasure", quality_scores.get("rouge2_fmeasure", 0.0))
-            mlflow.log_metric("rougeL_fmeasure", quality_scores.get("rougeL_fmeasure", 0.0))
-
-            for metric_name, score in quality_scores.items():
-                if metric_name not in ["bleu_score", "rouge1_fmeasure", "rouge2_fmeasure", "rougeL_fmeasure"]:
-                    mlflow.log_metric(f"quality_{metric_name}", score)
+            duration = time.time() - (run.info.start_time / 1000)
             
+            metric_lines = []
+            for metric_name, score in quality_scores.items():
+                #if metric_name not in ["bleu_score", "rouge1_fmeasure", "rouge2_fmeasure", "rougeL_fmeasure"]:
+                try:
+                    mlflow.log_metric(f"quality_{metric_name}", float(score))
+                    metric_lines.append(f"{metric_name}: {score}")
+                except (TypeError, ValueError):
+                    pass
+            metrics_display = "\n".join(metric_lines)
             # Save output
             mlflow.log_text(text, "generated_text.txt")
             
@@ -168,7 +190,7 @@ def run_generation(config: dict):
                 experiment=experiment_name,
                 output_length=len(text),
                 current_perplexity=perplexity,
-                output_text=text,
+                output_text=text + "\n\n---📊 Quality Metrics---\n" + metrics_display,
                 bleu_score=quality_scores.get("bleu_score", 0.0),
                 rouge1_fmeasure=quality_scores.get("rouge1_fmeasure", 0.0),
             )
@@ -431,89 +453,89 @@ def _generate_from_qwen_coder(prompt, max_length, temperature, model_name, devic
     
     return text, model, tokenizer
 
-
 def calculate_text_quality(generated_text: str, original_prompt: str) -> dict:
-    """
-    Enhanced quality metrics for generated text
-    """
-    # Remove the prompt from generated text if it's included
+    
     if generated_text.startswith(original_prompt):
         actual_generation = generated_text[len(original_prompt):].strip()
     else:
         actual_generation = generated_text
     
-    words = actual_generation.split()
+    words = actual_generation.lower().split()
+    sentences = [s.strip() for s in 
+                 actual_generation.replace('!','.').replace('?','.').split('.') 
+                 if s.strip()]
     
-    if len(words) == 0:
-        return {
-            "length_score": 0.0,
-            "diversity_score": 0.0,
-            "repetition_score": 0.0,
-            "overall_quality": 0.0,
-            "bleu_score": 0.0,
-            "rouge1_fmeasure": 0.0,
-            "rouge2_fmeasure": 0.0,
-            "rougeL_fmeasure": 0.0
-        }
+    # 1. Vocabulary Richness (Type-Token Ratio)
+    unique_words = set(words)
+    ttr = len(unique_words) / len(words) if words else 0
     
-    # 1. Length score (prefer 50-200 words)
-    word_count = len(words)
-    if word_count < 20:
-        length_score = word_count / 20.0
-    elif word_count > 200:
-        length_score = max(0.5, 1.0 - (word_count - 200) / 200.0)
+    # 2. Repetition penalty (n-gram repetition)
+    def ngram_repetition(words, n=3):
+        ngrams = [tuple(words[i:i+n]) for i in range(len(words)-n+1)]
+        if not ngrams:
+            return 0.0
+        unique_ngrams = set(ngrams)
+        repetition = 1.0 - (len(unique_ngrams) / len(ngrams))
+        return repetition  # lower is better
+    
+    trigram_rep = ngram_repetition(words, 3)
+    
+    # 3. Sentence length variation (good stories vary sentence length)
+    if len(sentences) > 1:
+        sent_lengths = [len(s.split()) for s in sentences]
+        avg_len = sum(sent_lengths) / len(sent_lengths)
+        variance = sum((l - avg_len)**2 for l in sent_lengths) / len(sent_lengths)
+        sentence_variety = min(1.0, variance / 50)  # normalize
     else:
-        length_score = 1.0
+        sentence_variety = 0.0
     
-    # 2. Vocabulary diversity (unique words / total words)
-    unique_words = len(set(w.lower() for w in words))
-    diversity_score = unique_words / len(words) if len(words) > 0 else 0
+    # 4. Prompt adherence — did it continue from the prompt?
+    prompt_words = set(original_prompt.lower().split())
+    gen_words = set(words[:50])  # check first 50 words
+    prompt_adherence = len(prompt_words & gen_words) / len(prompt_words) if prompt_words else 0
     
-    # 3. Repetition score (penalize repeated adjacent words)
-    repetitions = sum(1 for i in range(len(words) - 1) if words[i].lower() == words[i + 1].lower())
-    repetition_score = max(0, 1.0 - (repetitions / len(words)))
+    # 5. Coherence proxy — consecutive sentence similarity
+    # (high similarity = repetitive, low = incoherent, mid = good)
+    def sentence_coherence(sentences):
+        if len(sentences) < 2:
+            return 0.5
+        scores = []
+        for i in range(len(sentences)-1):
+            s1 = set(sentences[i].lower().split())
+            s2 = set(sentences[i+1].lower().split())
+            if not s1 or not s2:
+                continue
+            overlap = len(s1 & s2) / max(len(s1), len(s2))
+            scores.append(overlap)
+        avg = sum(scores)/len(scores) if scores else 0
+        # ideal coherence overlap is 0.1-0.3
+        coherence = 1.0 - abs(avg - 0.2) / 0.2
+        return max(0.0, min(1.0, coherence))
     
-    # 4. Sentence structure (count sentences)
-    sentences = [s.strip() for s in actual_generation.replace('!', '.').replace('?', '.').split('.') if s.strip()]
-    avg_sentence_length = len(words) / len(sentences) if sentences else 0
-    structure_score = 1.0 if 5 <= avg_sentence_length <= 25 else 0.7
+    coherence_score = sentence_coherence(sentences)
     
-    # 5. BLEU score with smoothing (for short texts)
-    reference = [original_prompt.lower().split()]
-    candidate = actual_generation.lower().split()
-    smoothing = SmoothingFunction().method1
-    bleu_score = sentence_bleu(reference, candidate, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=smoothing)
-    
-    # 6. ROUGE scores (multiple variants)
-    scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
-    rouge_scores = scorer.score(original_prompt, actual_generation)
-    rouge1_f = rouge_scores['rouge1'].fmeasure
-    rouge2_f = rouge_scores['rouge2'].fmeasure
-    rougeL_f = rouge_scores['rougeL'].fmeasure
-    
-    # Overall quality (weighted average)
+    # 6. Overall quality — no BLEU/ROUGE
     overall_quality = (
-        length_score * 0.15 +
-        diversity_score * 0.25 +
-        repetition_score * 0.25 +
-        structure_score * 0.15 +
-        bleu_score * 0.05 +
-        rouge1_f * 0.05 +
-        rouge2_f * 0.05 +
-        rougeL_f * 0.05
+        ttr * 0.30 +                          # vocabulary richness
+        (1 - trigram_rep) * 0.25 +            # non-repetitive
+        sentence_variety * 0.20 +             # varied sentences
+        coherence_score * 0.15 +              # coherent flow
+        prompt_adherence * 0.10               # stays on topic
     )
     
     return {
-        "length_score": length_score,
-        "diversity_score": diversity_score,
-        "repetition_score": repetition_score,
-        "structure_score": structure_score,
-        "overall_quality": overall_quality,
-        "word_count": word_count,
-        "unique_words": unique_words,
+        "vocabulary_richness": round(ttr, 4),
+        "repetition_rate": round(trigram_rep, 4),      # lower better
+        "sentence_variety": round(sentence_variety, 4),
+        "coherence_score": round(coherence_score, 4),
+        "prompt_adherence": round(prompt_adherence, 4),
+        "overall_quality": round(overall_quality, 4),
+        "word_count": len(words),
         "sentence_count": len(sentences),
-        "bleu_score": bleu_score,
-        "rouge1_fmeasure": rouge1_f,
-        "rouge2_fmeasure": rouge2_f,
-        "rougeL_fmeasure": rougeL_f
+        "unique_words": len(unique_words),
+        # Keep BLEU/ROUGE for compatibility but don't weight them
+        "bleu_score": 0.0,
+        "rouge1_fmeasure": 0.0,
+        "rouge2_fmeasure": 0.0,
+        "rougeL_fmeasure": 0.0,
     }
