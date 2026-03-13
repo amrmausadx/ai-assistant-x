@@ -50,6 +50,7 @@ Updates:
 
 11-03-2026: Modify LoRA settings and evaluation strategy
 
+13-3-2026: Enhance prompt building and quality metrics
 
 ########################################################################
 ##Conda lines to run
